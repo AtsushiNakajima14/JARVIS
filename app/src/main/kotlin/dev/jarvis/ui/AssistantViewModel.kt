@@ -11,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.jarvis.assistant.memory.MemoryRepository
 import dev.jarvis.assistant.response.SpeechResponder
 import dev.jarvis.assistant.response.LocalAIProvider
+import dev.jarvis.assistant.notifications.NotificationRepository
 import dev.jarvis.assistant.speech.AndroidSpeechEngine
 import dev.jarvis.assistant.speech.SpeechProviderAvailability
 import dev.jarvis.core.common.*
@@ -30,7 +31,8 @@ class AssistantViewModel @Inject constructor(
     val session: AssistantSession, val store: SettingsStore, val memory: MemoryRepository,
     private val dao: JarvisDao, private val apps: ApplicationRepository,
     private val scanner: DeviceScanner, private val responder: SpeechResponder,
-    private val localAI: LocalAIProvider, private val speech: AndroidSpeechEngine
+    private val localAI: LocalAIProvider, private val speech: AndroidSpeechEngine,
+    private val notifications: NotificationRepository
 ) : ViewModel() {
     val status = session.state.asStateFlow()
     val config = store.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssistantSettings())
@@ -38,13 +40,20 @@ class AssistantViewModel @Inject constructor(
     val busy = MutableStateFlow(false)
     val voices = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val speechProvider = MutableStateFlow<SpeechProviderAvailability?>(null)
+    val notificationAccess = MutableStateFlow(false)
     private val deviceTasks = Mutex()
     private fun <T> Flow<List<T>>.observed() = catch { notice.value = "Local data could not be read. Clear app data if your device encryption key changed."; emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val history = dao.history().observed()
     val applications = apps.applications.observed()
     val information = dao.deviceInfo().observed()
-    val memories = memory.memories.observed()
+    val memories = combine(memory.memories, store.settings, notificationAccess) { items, config, allowed ->
+        items.mapNotNull { item ->
+            if (item.kind != "notification_message") item
+            else if (!config.notificationReading || !allowed) null
+            else notifications.savedPreviewLabel(item)?.let { item.copy(content = SecretText(it)) }
+        }
+    }.flowOn(Dispatchers.IO).observed()
     init { task("Scanning applications…") { if (apps.list().isEmpty()) apps.scan(); scanner.scanDevice(); "Device index ready" } }
     private fun task(label: String, block: suspend () -> String) {
         viewModelScope.launch {
@@ -71,13 +80,33 @@ class AssistantViewModel @Inject constructor(
     fun refreshSpeechProvider() {
         viewModelScope.launch { speechProvider.value = withContext(Dispatchers.IO) { speech.availability() } }
     }
+    fun refreshNotificationAccess() {
+        viewModelScope.launch {
+            val allowed = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+            notificationAccess.value = allowed
+            if (!allowed) withContext(Dispatchers.IO) { notifications.clear() }
+        }
+    }
     fun boolean(key: String, value: Boolean) { viewModelScope.launch { store.boolean(key, value) } }
+    fun notificationReading(enabled: Boolean) = task(if (enabled) "Enabling notification awareness…" else "Deleting notification previews…") {
+        if (!enabled) stopAndClearConversation()
+        store.boolean("notification_reading", enabled)
+        if (!enabled) notifications.clear()
+        if (enabled) "Notification reading enabled. Allow Notification access in Android settings."
+        else "Notification previews deleted. Listening is paused."
+    }
+    fun clearNotifications() = task("Deleting captured notifications…") {
+        stopAndClearConversation()
+        notifications.clear()
+        "Captured notifications deleted. New notifications can be captured while reading is enabled."
+    }
     fun text(key: String, value: String) { viewModelScope.launch { store.text(key, value) } }
     fun number(key: String, value: Float) { viewModelScope.launch { store.number(key, value) } }
     fun forget(item: UserPreferenceEntity) = task("Deleting…") {
         if (item.kind == "file") runCatching { context.contentResolver.releasePersistableUriPermission(item.content.text.substringAfterLast('\n').toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        if (item.kind == "memory") stopAndClearConversation()
-        memory.forget(item.id); "Deleted"
+        if (item.kind in setOf("memory", "notification_message")) stopAndClearConversation()
+        if (item.kind == "notification_message") notifications.forget(item.id) else memory.forget(item.id)
+        "Deleted"
     }
     private class AssistantStopTimeout : IllegalStateException()
     private suspend fun stopAndClearConversation() {
@@ -99,6 +128,12 @@ class AssistantViewModel @Inject constructor(
     }
     fun clearData() = task("Clearing local data…") {
         stopAndClearConversation()
+        // Stop incoming capture before clearing the database, so a notification
+        // arriving during this operation cannot restore deleted message previews.
+        store.boolean("notification_reading", false)
+        store.boolean("notification_announcements", false)
+        store.boolean("notifications", false)
+        notifications.clear()
         context.getSystemService(android.app.NotificationManager::class.java).cancelAll()
         val alarm = context.getSystemService(android.app.AlarmManager::class.java)
         dao.preferenceList("timer").forEach { timer ->

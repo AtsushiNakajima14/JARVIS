@@ -8,7 +8,9 @@ enum class IntentType {
     FLASHLIGHT_ON, FLASHLIGHT_OFF, BATTERY_STATUS, VOLUME_UP, VOLUME_DOWN, VOLUME_SET,
     CAMERA, TIMER, CALL, MESSAGE, MUSIC_PLAY, MUSIC_PAUSE, MUSIC_NEXT, MUSIC_PREVIOUS,
     MOST_USED, RARELY_USED, STORAGE, MEMORY_USAGE, DEVICE_INFO, SYSTEM_STATUS,
-    REMEMBER, RECALL, SETTINGS, CONFIRM, CANCEL, HELP, UNKNOWN
+    REMEMBER, RECALL, SETTINGS, CONFIRM, CANCEL, HELP, UNKNOWN,
+    ASSISTANT_IDENTITY, CREATOR, OWNER_IDENTITY, NOTIFICATIONS, RECENT_CONVERSATIONS, UNLOCK_PHONE,
+    GREETING, DAILY_BRIEFING
 }
 
 data class ParsedCommand(
@@ -29,6 +31,7 @@ class CommandParser {
             ParsedCommand(type, argument = argument, value = value, body = body)
         if (text in setOf("yes", "confirm", "confirm it", "yes please", "oo", "sige", "oo sige")) return command(IntentType.CONFIRM)
         if (text in setOf("no", "cancel", "stop", "never mind", "hindi", "ayaw", "huwag")) return command(IntentType.CANCEL)
+        if (text.isBlank() && Regex("^(?:hi|hello|hey)\\b").containsMatchIn(normalize(raw))) return command(IntentType.GREETING)
         if (text.isBlank() || text in setOf("help", "what can you do", "tulong")) return command(IntentType.HELP)
         Regex("^(?:remember(?: that)?|tandaan(?: mo)?(?: na)?)\\s+(.+)$").find(text)?.let {
             return command(IntentType.REMEMBER, it.groupValues[1])
@@ -41,6 +44,7 @@ class CommandParser {
         Regex("^(?:send (?:a )?(?:message|text) to|message|text|i-text|itext)\\s+(.+)$").find(text)?.let {
             return command(IntentType.MESSAGE, it.groupValues[1])
         }
+        PersonalCommandParser.parse(text)?.let { return it }
         val opening = Regex("^(open(?: up)?|launch|start|run|bring up|take me to|go to|i want to (?:open|launch|use|start|run)|i(?: would|['’]d) like to (?:open|launch|use|start|run)|let['’]s (?:open|launch|use)|buksan(?: mo)?(?: ang)?|ablihi(?: ang)?|abrihi(?: ang)?)\\s+(.+)$").find(text)
         if (opening != null) {
             val address = opening.groupValues[1]
@@ -111,7 +115,7 @@ class CommandParser {
 /** Strip only leading address/politeness, preserving message contents and case. */
 fun stripAssistantPrefix(input: String, assistantName: String = "Jarvis"): String {
     val names = setOf(assistantName, "Jarvis").filter { it.isNotBlank() }.joinToString("|") { Regex.escape(it) }
-    val wake = Regex("^(?:(?:hey|hi|ok|okay)\\s+)?(?:$names)\\b[\\s,.:;!?…-]*", RegexOption.IGNORE_CASE)
+    val wake = Regex("^(?:(?:hey|hi|hello|ok|okay)\\s+)?(?:$names)\\b[\\s,.:;!?…-]*", RegexOption.IGNORE_CASE)
     val polite = Regex("^(?:please\\s+|(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)", RegexOption.IGNORE_CASE)
     var text = input.trim().take(2000)
     repeat(2) { text = text.replaceFirst(wake, "").replaceFirst(polite, "").trim() }

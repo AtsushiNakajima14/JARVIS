@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jarvis.ui.AssistantViewModel
+import dev.jarvis.assistant.response.AssistantPersona
 import dev.jarvis.ui.components.*
 
 @Composable fun HomeScreen(vm: AssistantViewModel, listen: () -> Unit, wake: () -> Unit, command: (String) -> Unit, stop: () -> Unit, history: () -> Unit) {
@@ -23,7 +24,7 @@ import dev.jarvis.ui.components.*
     var input by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(6.dp))
-        Text("A little help.\nA little more time.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+        Text("Hi, ${AssistantPersona.FRIENDLY_NAME}.\nI'm here to help.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(Icons.Outlined.Lock, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
             Text("Your voice. Your assistant.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -61,7 +62,11 @@ import dev.jarvis.ui.components.*
         Text("TRY ASKING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SuggestionChip(onClick = { command("battery percentage") }, label = { Text("Battery status") })
-            SuggestionChip(onClick = { command("show device information") }, label = { Text("My device") })
+            SuggestionChip(onClick = { command("give me a briefing") }, label = { Text("Catch me up") })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SuggestionChip(onClick = { command("read my notifications") }, label = { Text("Notifications") })
+            SuggestionChip(onClick = { command("who messaged me") }, label = { Text("Recent chats") })
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Recent conversations", style = MaterialTheme.typography.titleMedium)

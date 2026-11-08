@@ -1,6 +1,7 @@
 package dev.jarvis.assistant.response
 
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.Context
 import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -11,6 +12,7 @@ import dev.jarvis.localai.LocalLlm
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import java.time.LocalDateTime
+import java.util.concurrent.TimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,27 +33,48 @@ class LocalAIProvider @Inject constructor(@param:ApplicationContext private val 
         return withContext(Dispatchers.IO) {
             val config = settings.settings.first()
             check(config.localAi) { "Local AI is disabled" }
+            val keyguard = context.getSystemService(KeyguardManager::class.java)
+            val unlocked = !keyguard.isKeyguardLocked
             val memoryInfo = ActivityManager.MemoryInfo()
             context.getSystemService(ActivityManager::class.java).getMemoryInfo(memoryInfo)
-            if (memoryInfo.availMem < 220L * 1024 * 1024) throw LocalAiLowMemory()
+            if (memoryInfo.lowMemory || memoryInfo.availMem < 220L * 1024 * 1024) throw LocalAiLowMemory()
             val apps = applications.list()
             val tokens = question.lowercase().split(Regex("[^a-z0-9]+" )).filter { it.length > 2 }.toSet()
-            val relevant = apps.filter { app -> tokens.any { app.label.contains(it, true) } }.take(4).joinToString { it.label }
+            val relevant = if (unlocked) apps.filter { app -> tokens.any { app.label.contains(it, true) } }
+                .take(4).joinToString { it.label } else ""
             val facts = "Phone: ${Build.MANUFACTURER} ${Build.MODEL}. ${apps.size} launchable apps indexed. " +
                 (if (relevant.isNotBlank()) "Relevant installed apps: $relevant. " else "") + "Now: ${LocalDateTime.now().withSecond(0).withNano(0)}."
-            val preference = if (config.memory) memory.recall(question) else null
-            val prompt = LocalPrompt.build(config.name, question, facts, preference, snapshot.turns)
+            val preference = if (config.memory && unlocked) memory.recall(question) else null
+            val privateContext = preference != null || relevant.isNotBlank() || (unlocked && snapshot.turns.isNotEmpty())
+            val prompt = LocalPrompt.build(config.name, question, facts, preference,
+                if (unlocked) snapshot.turns else emptyList())
             if (currentRevision() != snapshot.revision) throw CancellationException("Conversation cleared before local AI inference")
             val model = models.model()
             currentCoroutineContext().ensureActive()
             if (currentRevision() != snapshot.revision) throw CancellationException("Conversation cleared before local AI inference")
+            if (privateContext && keyguard.isKeyguardLocked) return@withContext PRIVATE_CONTEXT_LOCKED
+            val started = System.nanoTime()
             val response = try {
-                LocalPrompt.cleanReply(runtime.generate(model.absolutePath, prompt, maxTokens = 64, timeoutMs = 20_000))
+                val generated = try {
+                    runtime.generate(model.absolutePath, prompt, maxTokens = 64, timeoutMs = 20_000)
+                } catch (error: IllegalArgumentException) {
+                    // A few Unicode characters can cost many tokens. Retry a
+                    // smaller prompt only for the native context-limit error;
+                    // do not hide missing/corrupt models or other failures.
+                    if (error.message != "The question is too long for the small local AI context.") throw error
+                    currentCoroutineContext().ensureActive()
+                    val remaining = 20_000 - (System.nanoTime() - started) / 1_000_000
+                    if (remaining <= 0) throw TimeoutException("Local AI reached its time limit.")
+                    runtime.generate(model.absolutePath, LocalPrompt.buildCompact(config.name, question, facts),
+                        maxTokens = 64, timeoutMs = remaining)
+                }
+                LocalPrompt.cleanReply(generated)
             } finally {
                 // Cancellation must wait for native allocations to be freed before wake recognition reloads.
                 withContext(NonCancellable) { runtime.awaitIdle() }
             }
             currentCoroutineContext().ensureActive()
+            if (privateContext && keyguard.isKeyguardLocked) return@withContext PRIVATE_CONTEXT_LOCKED
             check(response.isNotBlank()) { "Local AI did not produce a reply" }
             if (!recordTurn(question, response, snapshot.revision)) throw CancellationException("Conversation cleared during local AI reply")
             response
@@ -63,4 +86,8 @@ class LocalAIProvider @Inject constructor(@param:ApplicationContext private val 
     fun recordTurn(question: String, response: String, expectedRevision: Long = currentRevision()): Boolean =
         conversation.recordTurn(question, response, expectedRevision)
     fun clearConversation() { conversation.clear(); runtime.cancel() }
+
+    private companion object {
+        const val PRIVATE_CONTEXT_LOCKED = "Your phone locked, so I stopped using your private context. Unlock it and ask again."
+    }
 }

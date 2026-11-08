@@ -46,7 +46,7 @@ import dev.jarvis.ui.components.SectionLabel
     val visible = memories.filter { it.kind != "timer" }
     LazyColumn(contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("On this device", style = MaterialTheme.typography.headlineMedium) }
-        item { Text("Explicit preferences, favorite app notes, calendar events, notification metadata and selected file metadata. Delete any item at any time.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Saved preferences, calendar events, permitted notification previews and selected file metadata. Notification previews require access and an unlocked phone. Delete any item at any time.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (visible.isEmpty()) item { Text("Nothing saved yet. Try “Remember that I use Discord for school.”") }
         items(visible, key = { it.id }) { memory ->
             Card { ListItem(headlineContent = { Text(memory.content.text) }, overlineContent = { Text(memory.kind.uppercase()) }, trailingContent = {

@@ -9,7 +9,8 @@ class SpeechSelection(private val parser: CommandParser = CommandParser()) {
         val first = parser.parse(primary, assistantName)
         if (first.type !in setOf(IntentType.UNKNOWN, IntentType.RECALL)) return primary
         val restricted = setOf(IntentType.UNKNOWN, IntentType.RECALL, IntentType.CONFIRM, IntentType.CANCEL,
-            IntentType.CALL, IntentType.MESSAGE, IntentType.REMEMBER, IntentType.HELP)
+            IntentType.CALL, IntentType.MESSAGE, IntentType.REMEMBER, IntentType.HELP,
+            IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS, IntentType.UNLOCK_PHONE, IntentType.DAILY_BRIEFING)
         val known = candidates.drop(1).map { it to parser.parse(it, assistantName) }
             .filter { it.second.confidence >= 0.7 && it.second.type !in restricted }
         val meanings = known.map { it.second }.distinct()

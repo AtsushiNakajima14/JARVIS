@@ -40,7 +40,9 @@ class OfflineSpeechSelection(private val appLabels: List<String>, private val pa
         val original = free.alternatives
         val first = parser.parse(original.firstOrNull().orEmpty())
         val protected = setOf(IntentType.CALL, IntentType.MESSAGE, IntentType.REMEMBER, IntentType.RECALL,
-            IntentType.CONFIRM, IntentType.CANCEL)
+            IntentType.CONFIRM, IntentType.CANCEL, IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS,
+            IntentType.DAILY_BRIEFING, IntentType.UNLOCK_PHONE, IntentType.ASSISTANT_IDENTITY,
+            IntentType.CREATOR, IntentType.OWNER_IDENTITY, IntentType.GREETING)
         if (first.type in protected && first.type != IntentType.RECALL) return original
         val grammarText = grammar?.alternatives?.firstOrNull() ?: return original
         if (normalize(stripAssistantPrefix(grammarText)) !in allowed) return original

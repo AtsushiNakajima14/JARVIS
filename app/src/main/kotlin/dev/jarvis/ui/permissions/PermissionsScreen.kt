@@ -60,7 +60,7 @@ import dev.jarvis.ui.components.SectionLabel
             }
             PermissionRow("Usage access", "App usage and per-app storage statistics", PermissionStatus.usage(context)) { open(Settings.ACTION_USAGE_ACCESS_SETTINGS) }
             val notificationAccess = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
-            PermissionRow("Notification access", "Required for music controls; metadata storage is a separate setting", notificationAccess) { open(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
+            PermissionRow("Notification access", "Music controls and optional notification awareness. Preview capture and spoken alerts have separate switches in Settings.", notificationAccess) { open(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
             if (Build.VERSION.SDK_INT >= 31) PermissionRow("Bluetooth status", "Read whether Bluetooth is enabled", PermissionStatus.granted(context, Manifest.permission.BLUETOOTH_CONNECT)) { ask(Manifest.permission.BLUETOOTH_CONNECT) }
             OutlinedButton(onClick = { file.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) { Text("Select a file to index") }
             Text("Only its name, size and access URI are saved. File contents are never read.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

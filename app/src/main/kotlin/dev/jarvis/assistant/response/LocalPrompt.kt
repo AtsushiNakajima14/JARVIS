@@ -4,6 +4,13 @@ import java.util.Locale
 
 data class ChatTurn(val user: String, val assistant: String)
 
+/** The app owner's requested attribution; these are not device access credentials. */
+object AssistantPersona {
+    const val CREATOR_NAME = "Cyril Matt O. Encenso"
+    const val CREATOR_ALIAS = "CyCy"
+    const val FRIENDLY_NAME = CREATOR_ALIAS
+}
+
 /** Process-local conversational context, fenced against a clear while work is in flight. */
 class ConversationContext(private val maximumTurns: Int = 4) {
     data class Snapshot(val revision: Long, val turns: List<ChatTurn>)
@@ -28,21 +35,69 @@ class ConversationContext(private val maximumTurns: Int = 4) {
 }
 
 object LocalPrompt {
-    private fun clean(value: String, limit: Int) = value.replace("<|", "‹|").replace("|>", "|›").trim().take(limit)
+    const val MAX_PROMPT_BYTES = 1350
+    const val MAX_COMPACT_PROMPT_BYTES = 440
+    private fun clean(value: String, bytes: Int) = utf8Prefix(
+        value.replace("<|", "‹|").replace("|>", "|›").replace("\u0000", "").trim(), bytes)
+
+    /** Truncate at a Unicode code point, never halfway through an emoji/surrogate pair. */
+    private fun utf8Prefix(value: String, budget: Int): String {
+        var used = 0
+        var end = 0
+        while (end < value.length) {
+            val point = Character.codePointAt(value, end)
+            val size = when { point <= 0x7f -> 1; point <= 0x7ff -> 2; point <= 0xffff -> 3; else -> 4 }
+            if (used + size > budget) break
+            used += size
+            end += Character.charCount(point)
+        }
+        return value.substring(0, end)
+    }
+
+    private fun message(role: String, text: String) = "<|im_start|>$role\n$text<|im_end|>\n"
+    private fun byteSize(value: String) = value.toByteArray(Charsets.UTF_8).size
+    private const val RESPONSE_PREFIX = "<|im_start|>assistant\n"
+
     /** Small context for a 3 GB phone. Personal text stays entirely in this local prompt. */
     fun build(name: String, question: String, facts: String, memory: String?, history: List<ChatTurn>): String {
-        val system = "You are ${clean(name, 30)}, my friendly personal assistant. Reply briefly in English. " +
-            "Do not claim to open apps, call, send or change settings. Phone skills perform actions. " +
-            "Use the facts given. Say when you do not know.\n" + clean(facts, 180) +
-            (memory?.let { "\nSaved preference: ${clean(it, 120)}" } ?: "")
-        return buildString {
-            append("<|im_start|>system\n$system<|im_end|>\n")
-            history.takeLast(1).forEach { turn ->
-                append("<|im_start|>user\n${clean(turn.user, 100)}<|im_end|>\n")
-                append("<|im_start|>assistant\n${clean(turn.assistant, 140)}<|im_end|>\n")
+        val system = "You are ${clean(name, 30)}, ${AssistantPersona.FRIENDLY_NAME}'s personal assistant. " +
+            "Your creator is ${AssistantPersona.CREATOR_NAME} (${AssistantPersona.CREATOR_ALIAS}). " +
+            "Be warm and concise in English. Use supplied facts and recent conversation; say when unsure. " +
+            "Do not claim to open apps, call, send or change settings. " +
+            "You cannot see private app screens or complete chat history.\nFacts: ${clean(facts, 144)}" +
+            (memory?.takeIf { it.isNotBlank() }?.let { "\nSaved preference: ${clean(it, 96)}" } ?: "")
+        val prefix = message("system", system)
+        val suffix = message("user", clean(question, 360)) + RESPONSE_PREFIX
+        var remaining = minOf(320, MAX_PROMPT_BYTES - byteSize(prefix) - byteSize(suffix))
+        val previous = ArrayDeque<String>()
+        // Short exchanges can retain two turns. Longer ones prioritize the newest
+        // turn instead of exceeding the small model's context with old transcripts.
+        for (turn in history.takeLast(2).asReversed()) {
+            if (remaining < 100) break
+            val user = clean(turn.user, minOf(80, remaining / 3))
+            val assistant = clean(turn.assistant, minOf(140, remaining - byteSize(user) - 61))
+            val exchange = message("user", user) + message("assistant", assistant)
+            if (byteSize(exchange) <= remaining) {
+                previous.addFirst(exchange)
+                remaining -= byteSize(exchange)
             }
-            append("<|im_start|>user\n${clean(question, 360)}<|im_end|>\n<|im_start|>assistant\n")
         }
+        return prefix + previous.joinToString("") + suffix
+    }
+
+    /**
+     * Retry only if native tokenization rejects an unusually dense prompt. The
+     * byte bound leaves space for 64 output tokens and automatically added tokens
+     * even when Unicode text cannot benefit from ordinary English BPE merges.
+     */
+    fun buildCompact(name: String, question: String, facts: String): String {
+        var system = "You are ${clean(name, 16)}, ${AssistantPersona.FRIENDLY_NAME}'s helpful local assistant, " +
+            "created by ${AssistantPersona.CREATOR_NAME} (${AssistantPersona.CREATOR_ALIAS}). " +
+            "Reply briefly in English. Admit uncertainty; private app data is unseen. Phone skills execute actions."
+        val suffix = message("user", clean(question, 144)) + RESPONSE_PREFIX
+        val factBudget = minOf(48, MAX_COMPACT_PROMPT_BYTES - byteSize(message("system", system) + suffix) - 8)
+        if (factBudget > 0) clean(facts, factBudget).takeIf { it.isNotBlank() }?.let { system += "\nFacts: $it" }
+        return message("system", system) + suffix
     }
     fun cleanReply(value: String): String {
         var text = value.substringBefore("<|im_end|>").substringBefore("<|im_start|>")

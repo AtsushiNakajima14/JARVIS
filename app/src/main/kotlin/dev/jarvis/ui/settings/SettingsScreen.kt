@@ -18,12 +18,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.Lifecycle
 import dev.jarvis.ui.AssistantViewModel
+import dev.jarvis.assistant.response.AssistantPersona
 import dev.jarvis.ui.components.*
 
 @Composable fun SettingsScreen(vm: AssistantViewModel, stop: () -> Unit, navigate: (String) -> Unit) {
     val config by vm.config.collectAsStateWithLifecycle()
     val voices by vm.voices.collectAsStateWithLifecycle()
     val speechProvider by vm.speechProvider.collectAsStateWithLifecycle()
+    val notificationAccess by vm.notificationAccess.collectAsStateWithLifecycle()
     var name by remember(config.name) { mutableStateOf(config.name) }
     var destructive by remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -72,6 +74,13 @@ import dev.jarvis.ui.components.*
         SettingSwitch("Background listening", "Keep the microphone service active with the screen off", config.background) { vm.boolean("background", it); if (!it) stop() }
         SettingSwitch("Local memory", "Remember and recall preferences you explicitly save", config.memory) { vm.boolean("memory", it) }
         SettingSwitch("Command history", "Save up to 200 encrypted conversations", config.history) { vm.boolean("history", it) }
+        SectionLabel("Notification awareness")
+        Text(if (notificationAccess) "Android notification access is enabled." else "Allow Android Notification access to use these features.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("With Android Notification access, JARVIS can read notification previews and recall people who sent message notifications. It cannot read an app's private chat database or conversations it never received.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingSwitch("Read notification previews", "Save permitted titles, senders and message previews encrypted on this phone for up to seven days. Readouts require an unlocked phone. Turning this off deletes captured previews.", config.notificationReading) { vm.notificationReading(it) }
+        SettingSwitch("Announce new notifications", "While JARVIS is listening, say the app name when a notification arrives. Message text stays private; alerts wait until a command finishes.", config.notificationAnnouncements) { vm.boolean("notification_announcements", it) }
+        TextButton(onClick = { runCatching { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.onFailure { vm.notice.value = "Open Android Settings and search for Notification access." } }) { Text("Manage Android notification access") }
+        TextButton(onClick = { destructive = "Delete captured notifications" }) { Text("Delete captured notifications") }
         SettingSwitch("Notification metadata", "With access enabled, save app names and timestamps only", config.notifications) { vm.boolean("notifications", it) }
         SettingsLink("Saved memory & selected data", "View and delete individual items") { navigate("memory") }
         SettingsLink("Permissions", "Manage microphone and optional access") { navigate("permissions") }
@@ -79,6 +88,8 @@ import dev.jarvis.ui.components.*
         SettingsLink("Device information", "Hardware, network, storage and battery") { navigate("device") }
         SettingsLink("Installed applications", "Search the local launcher index") { navigate("apps") }
         SettingsLink("System logs", "Operational events; no commands or audio") { navigate("logs") }
+        Text("Created by ${AssistantPersona.CREATOR_NAME} (${AssistantPersona.CREATOR_ALIAS}).", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 12.dp))
+        Text("Say “unlock my phone” to open Android authentication. JARVIS never stores or enters a screen-lock PIN.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SectionLabel("Privacy")
         Text("Recordings are never saved. Sensitive database fields use AES-GCM with an Android Keystore key. Android backup and device transfer are disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { destructive = "Delete saved memory" }) { Text("Delete saved memory") }
@@ -91,7 +102,7 @@ import dev.jarvis.ui.components.*
         text = { Text(if (destructive == "Reset application index") "Scan installed apps again and replace the local index. New apps are indexed automatically."
             else "This deletes the selected saved data and clears the current AI conversation. Listening will pause until you resume it.") },
         confirmButton = { TextButton(onClick = {
-            when (destructive) { "Delete saved memory" -> vm.clearMemory(); "Reset application index" -> vm.resetIndex(); else -> { stop(); vm.clearData() } }; destructive = ""
+            when (destructive) { "Delete saved memory" -> vm.clearMemory(); "Delete captured notifications" -> vm.clearNotifications(); "Reset application index" -> vm.resetIndex(); else -> { stop(); vm.clearData() } }; destructive = ""
         }) { Text(if (destructive == "Reset application index") "Rebuild" else "Delete") } },
         dismissButton = { TextButton(onClick = { destructive = "" }) { Text("Cancel") } })
 }

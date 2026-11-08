@@ -43,6 +43,7 @@ object RecognitionPolicy {
     fun phoneBias(confirmation: Boolean): List<String> = if (confirmation) emptyList() else listOf(
         "battery percentage", "battery status", "turn on flashlight", "turn off flashlight",
         "increase volume", "decrease volume", "open camera", "set a timer", "pause music", "play music",
-        "next song", "previous song", "show device information", "check storage", "check memory usage"
+        "next song", "previous song", "show device information", "check storage", "check memory usage",
+        "read my notifications", "who messaged me", "give me a briefing", "who made you", "unlock my phone"
     )
 }

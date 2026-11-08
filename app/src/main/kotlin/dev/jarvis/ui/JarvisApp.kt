@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.compose.*
 import dev.jarvis.ui.home.HomeScreen
 import dev.jarvis.ui.history.HistoryScreen
@@ -20,6 +22,7 @@ import dev.jarvis.ui.theme.JarvisTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun JarvisApp(onListen: () -> Unit, onWake: () -> Unit, onCommand: (String) -> Unit, onStop: () -> Unit, vm: AssistantViewModel = hiltViewModel()) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshNotificationAccess() }
     JarvisTheme {
         val nav = rememberNavController()
         val back by nav.currentBackStackEntryAsState()

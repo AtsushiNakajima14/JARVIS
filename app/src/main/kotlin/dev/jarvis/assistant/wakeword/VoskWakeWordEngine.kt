@@ -12,7 +12,7 @@ import javax.inject.Singleton
 @Singleton
 class VoskWakeWordEngine @Inject constructor(private val models: VoskModelStore, private val audio: VoskAudioSource) : WakeWordEngine {
     override suspend fun awaitWakeWord(appLabels: List<String>, onDetected: () -> Unit,
-        onPartial: (String) -> Unit): WakeActivation = withContext(Dispatchers.IO) {
+        onPartial: (String) -> Unit, onAudioActivity: () -> Unit): WakeActivation = withContext(Dispatchers.IO) {
         models.withModel { model ->
             val wake = Recognizer(model, 16000f, "[\"jarvis\", \"[unk]\"]")
             val preRoll = TransientPcmBuffer(8)
@@ -28,6 +28,9 @@ class VoskWakeWordEngine @Inject constructor(private val models: VoskModelStore,
             }
             try {
                 audio.recordFrames<WakeActivation> { samples, count ->
+                    // Energy activity precedes wake confirmation, so proactive speech
+                    // can wait for quiet without changing recognition or audio ownership.
+                    if (SpeechActivity.isActive(samples, count)) onAudioActivity()
                     val decoder = command
                     if (decoder == null) {
                         preRoll.add(samples, count)

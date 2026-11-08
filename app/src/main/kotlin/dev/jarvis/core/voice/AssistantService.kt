@@ -4,6 +4,7 @@ import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.media.AudioManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
@@ -14,6 +15,9 @@ import dev.jarvis.assistant.response.SpeechResponder
 import dev.jarvis.assistant.response.LocalAIProvider
 import dev.jarvis.assistant.response.LocalAiLowMemory
 import dev.jarvis.assistant.memory.MemoryRepository
+import dev.jarvis.assistant.notifications.NotificationAnnouncement
+import dev.jarvis.assistant.notifications.NotificationRepository
+import dev.jarvis.core.security.PrivateCommandPolicy
 import dev.jarvis.assistant.speech.AndroidSpeechEngine
 import dev.jarvis.assistant.speech.SpeechResult
 import dev.jarvis.assistant.wakeword.*
@@ -26,7 +30,9 @@ import dev.jarvis.device.applications.ApplicationRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.selects.select
 import javax.inject.Inject
+import java.util.concurrent.atomic.AtomicLong
 
 @AndroidEntryPoint
 class AssistantService : Service() {
@@ -44,6 +50,7 @@ class AssistantService : Service() {
     @Inject lateinit var feedback: ListeningFeedback
     @Inject lateinit var localAI: LocalAIProvider
     @Inject lateinit var memory: MemoryRepository
+    @Inject lateinit var notifications: NotificationRepository
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     // Commands belong to this service lifetime. The latest request replaces any
     // request queued while the previous microphone/native operation is stopping.
@@ -56,8 +63,22 @@ class AssistantService : Service() {
     private var expiry: Job? = null
     private var foreground = false
     private var manuallyPaused = false
+    private var privateTurn: Job? = null
+    private var privateReplyVisible = false
+    private val pendingAnnouncement = MutableStateFlow<NotificationAnnouncement?>(null)
+    private val lastAudioActivity = AtomicLong()
     private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) { clearConfirmation() }
+        override fun onReceive(context: Context?, intent: Intent?) {
+            clearConfirmation()
+            if (privateReplyVisible) {
+                privateReplyVisible = false
+                session.state.update { it.copy(transcript = "", lastResponse = "", detail = "Phone locked · private readout stopped") }
+                if (privateTurn?.isActive == true) {
+                    privateTurn?.cancel()
+                    if (!manuallyPaused) events.trySend(AssistantEvent.Wake)
+                }
+            }
+        }
     }
     override fun onCreate() {
         super.onCreate()
@@ -79,9 +100,22 @@ class AssistantService : Service() {
             }
         }
         scope.launch { session.state.map { it.phase to it.detail }.distinctUntilChanged().collect { (_, detail) -> if (foreground) notifyStatus(detail) } }
+        // This collector never starts the service. Only an explicitly running
+        // assistant may announce, and the latest alert waits for idle wake listening.
+        scope.launch { notifications.announcements.collect { pendingAnnouncement.value = it } }
+        scope.launch { notifications.invalidations.collect {
+            pendingAnnouncement.value = null
+            if (privateReplyVisible) {
+                clearPrivateDisplay()
+                if (privateTurn?.isActive == true) {
+                    privateTurn?.cancel()
+                    if (!manuallyPaused) events.trySend(AssistantEvent.Wake)
+                }
+            }
+        } }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { events.trySend(AssistantEvent.Pause); return START_NOT_STICKY }
+        if (intent?.action == ACTION_STOP) { manuallyPaused = true; events.trySend(AssistantEvent.Pause); return START_NOT_STICKY }
         manuallyPaused = false
         if (!PermissionStatus.microphone(this)) { session.state.value = AssistantState(AssistantPhase.ERROR, "Allow Microphone in Permissions"); stopSelf(); return START_NOT_STICKY }
         try {
@@ -121,20 +155,21 @@ class AssistantService : Service() {
                 models.get()
                 state(AssistantPhase.WAKE_WORD, "Say Jarvis")
                 try {
-                    val turn = currentCoroutineContext().job
                     val labels = appLabels()
-                    val activation = wake.awaitWakeWord(labels,
-                        onDetected = { session.state.update { current ->
-                            if (turn.isActive) current.copy(phase = AssistantPhase.LISTENING,
-                                detail = "Listening… keep speaking", running = true, transcript = "",
-                                recognitionSource = "Offline English · device commands") else current
-                        } },
-                        onPartial = { partial -> session.state.update { if (turn.isActive) it.copy(transcript = partial) else it } })
+                    val activation = when (val event = awaitWakeEvent(labels)) {
+                        is WakeEvent.Command -> event.activation
+                        is WakeEvent.Announcement -> {
+                            pendingAnnouncement.compareAndSet(event.value, null)
+                            if (canAnnounce(event.value)) { clearPrivateDisplay(); say(event.value.text) }
+                            continue
+                        }
+                    }
                     val heard = SpeechSelection(parser).choose(activation.alternatives, config.name)
                     val chat = if (stripAssistantPrefix(heard, config.name).isBlank()) listenAndExecute()
                     else if (config.networkSpeech && parser.parse(heard, config.name).type in setOf(
                         IntentType.UNKNOWN, IntentType.RECALL, IntentType.CALL, IntentType.MESSAGE,
-                        IntentType.REMEMBER, IntentType.CONFIRM, IntentType.CANCEL)) {
+                        IntentType.REMEMBER, IntentType.CONFIRM, IntentType.CANCEL,
+                        IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS, IntentType.DAILY_BRIEFING)) {
                         say("Please repeat your command after the tone.")
                         listenAndExecute()
                     } else {
@@ -162,6 +197,63 @@ class AssistantService : Service() {
             session.log("Assistant stopped: ${error.javaClass.simpleName}")
             state(AssistantPhase.ERROR, "Could not complete that request. Tap the mic to try again.")
             stopSelf()
+        }
+    }
+    private sealed interface WakeEvent {
+        data class Command(val activation: WakeActivation) : WakeEvent
+        data class Announcement(val value: NotificationAnnouncement) : WakeEvent
+    }
+    private suspend fun canAnnounce(event: NotificationAnnouncement): Boolean {
+        val config = settings.settings.first()
+        val mode = getSystemService(AudioManager::class.java).mode
+        val interruptions = getSystemService(NotificationManager::class.java).currentInterruptionFilter
+        return config.notificationAnnouncements && !manuallyPaused &&
+            (config.background || session.visible) && notifications.isCurrent(event) &&
+            System.currentTimeMillis() - event.postedAt in 0L..60_000L &&
+            androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName) &&
+            interruptions in setOf(NotificationManager.INTERRUPTION_FILTER_ALL, NotificationManager.INTERRUPTION_FILTER_UNKNOWN) &&
+            mode != AudioManager.MODE_IN_CALL && mode != AudioManager.MODE_IN_COMMUNICATION
+    }
+    private suspend fun awaitWakeEvent(labels: List<String>): WakeEvent = coroutineScope {
+        lastAudioActivity.set(SystemClock.elapsedRealtime())
+        val command = async {
+            val turn = currentCoroutineContext().job
+            wake.awaitWakeWord(labels,
+                onDetected = { session.state.update { current ->
+                    if (turn.isActive) current.copy(phase = AssistantPhase.LISTENING,
+                        detail = "Listening… keep speaking", running = true, transcript = "",
+                        recognitionSource = "Offline English · device commands") else current
+                } },
+                onPartial = { partial -> session.state.update {
+                    if (turn.isActive) it.copy(transcript = PrivateCommandPolicy.transcript(partial)) else it
+                } }, onAudioActivity = { lastAudioActivity.set(SystemClock.elapsedRealtime()) })
+        }
+        val alert = async {
+            combine(pendingAnnouncement, session.state) { candidate, state ->
+                candidate?.takeIf { state.phase == AssistantPhase.WAKE_WORD }
+            }.filterNotNull().first { candidate ->
+                // Defer alerts until there has been a quiet microphone window,
+                // including speech that has not yet produced a stable wake word.
+                while (session.state.value.phase == AssistantPhase.WAKE_WORD &&
+                    pendingAnnouncement.value == candidate && canAnnounce(candidate)) {
+                    val quiet = SystemClock.elapsedRealtime() - lastAudioActivity.get()
+                    if (quiet >= 1500) break
+                    delay((1500 - quiet).coerceIn(100, 1500))
+                }
+                session.state.value.phase == AssistantPhase.WAKE_WORD && canAnnounce(candidate)
+                    && pendingAnnouncement.value == candidate &&
+                    SystemClock.elapsedRealtime() - lastAudioActivity.get() >= 1500
+            }
+        }
+        try {
+            select<WakeEvent> {
+                command.onAwait { WakeEvent.Command(it) }
+                alert.onAwait { WakeEvent.Announcement(it) }
+            }
+        } finally {
+            // AudioRecord and its native recognizers must close before alert TTS.
+            command.cancelAndJoin()
+            alert.cancelAndJoin()
         }
     }
     private suspend fun listenAndExecute(): Boolean {
@@ -207,7 +299,7 @@ class AssistantService : Service() {
                         transcript = "", recognitionSource = source, running = true) else it }
                     feedback.ready()
                 }
-            }, onPartial = { partial -> session.state.update { if (turn.isActive) it.copy(transcript = partial) else it } })
+            }, onPartial = { partial -> session.state.update { if (turn.isActive) it.copy(transcript = PrivateCommandPolicy.transcript(partial)) else it } })
     }
     private suspend fun followUpConversation() {
         repeat(4) {
@@ -239,10 +331,40 @@ class AssistantService : Service() {
         catch (error: Exception) { session.log("Local AI reply failed: ${error.javaClass.simpleName}"); "I could not finish that thought. Try a shorter question." }
     }
     private suspend fun execute(text: String): Boolean {
-        state(AssistantPhase.PROCESSING, "Processing…")
-        session.state.update { it.copy(transcript = text) }
+        // Do not leave a previous message preview visible while a later, slower
+        // non-private request is processing or while the screen is locking.
+        clearPrivateDisplay()
+        if (PrivateCommandPolicy.isCredentialRequest(text)) {
+            clearConfirmation()
+            privateReplyVisible = false
+            session.state.update { it.copy(transcript = "[Credential omitted]") }
+            say(PrivateCommandPolicy.CREDENTIAL_REPLY)
+            return false
+        }
         val config = settings.settings.first()
         val parsed = parser.parse(text, config.name)
+        val privateQuery = PrivateCommandPolicy.notificationQuery(parsed.type)
+        privateReplyVisible = privateQuery
+        if (privateQuery) {
+            if (getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
+                privateReplyVisible = false
+                session.state.update { it.copy(transcript = "", lastResponse = "") }
+                say("Unlock your phone first to hear your notifications or recent chat names.")
+                return false
+            }
+            privateTurn = currentCoroutineContext().job
+        }
+        return try { executeCommand(text, parsed, config, privateQuery) }
+        finally { if (privateQuery) privateTurn = null }
+    }
+    private fun clearPrivateDisplay() {
+        if (!privateReplyVisible) return
+        privateReplyVisible = false
+        session.state.update { it.copy(transcript = "", lastResponse = "", detail = "Ready for your next request") }
+    }
+    private suspend fun executeCommand(text: String, parsed: ParsedCommand, config: AssistantSettings, privateQuery: Boolean): Boolean {
+        state(AssistantPhase.PROCESSING, "Processing…")
+        session.state.update { it.copy(transcript = text) }
         val epoch = localAI.currentRevision()
         if (normalize(stripAssistantPrefix(text, config.name)) in setOf("stop listening", "pause listening", "go to sleep", "sleep now")) {
             clearConfirmation(); say("Listening paused."); pause(); return false
@@ -259,10 +381,11 @@ class AssistantService : Service() {
                 else launcher.launch(action) ?: "Opening it for you. Complete the action in your phone app."
             }
             IntentType.CANCEL -> { clearConfirmation(); "Cancelled." }
-            IntentType.HELP -> { clearConfirmation(); "Try open Discord, turn on flashlight, battery percentage, set a timer for five minutes, or remember that I use Discord for school." }
+            IntentType.HELP -> { clearConfirmation(); "I can open your apps, give you a briefing, read permitted notifications, recall recent message senders, set timers, or answer a short question on this phone. What do you need, CyCy?" }
             IntentType.UNKNOWN, IntentType.RECALL -> {
                 clearConfirmation()
-                val saved = if (config.memory && parsed.type == IntentType.RECALL) memory.recall(text) else null
+                val saved = if (config.memory && parsed.type == IntentType.RECALL &&
+                    !getSystemService(KeyguardManager::class.java).isKeyguardLocked) memory.recall(text) else null
                 when {
                     saved != null -> { conversational = true; skillName = "Local memory"; "You told me: $saved." }
                     config.localAi -> { conversational = true; usedAI = true; skillName = "Local AI"; localReply(text) }
@@ -294,12 +417,21 @@ class AssistantService : Service() {
         }
         val followUpQueries = setOf(IntentType.BATTERY_STATUS, IntentType.DEVICE_INFO, IntentType.SYSTEM_STATUS,
             IntentType.MEMORY_USAGE, IntentType.STORAGE, IntentType.MOST_USED, IntentType.RARELY_USED,
-            IntentType.LIST_APPLICATIONS, IntentType.SEARCH_APPLICATIONS, IntentType.RECENT_APPLICATIONS, IntentType.REMEMBER)
+            IntentType.LIST_APPLICATIONS, IntentType.SEARCH_APPLICATIONS, IntentType.RECENT_APPLICATIONS, IntentType.REMEMBER,
+            IntentType.GREETING, IntentType.ASSISTANT_IDENTITY, IntentType.CREATOR, IntentType.OWNER_IDENTITY,
+            IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS, IntentType.DAILY_BRIEFING)
         if (parsed.type in followUpQueries) conversational = true
-        if (!usedAI && parsed.type !in setOf(IntentType.CALL, IntentType.MESSAGE, IntentType.CONFIRM, IntentType.CANCEL))
+        if (!usedAI && !privateQuery && parsed.type !in setOf(IntentType.CALL, IntentType.MESSAGE, IntentType.CONFIRM, IntentType.CANCEL))
             localAI.recordTurn(text, response, epoch)
-        if (config.history) withContext(Dispatchers.IO) {
+        if (config.history && !privateQuery) withContext(Dispatchers.IO) {
             dao.addHistory(CommandHistoryEntity(command = SecretText(text), response = SecretText(response), skill = skillName)); dao.trimHistory()
+        }
+        currentCoroutineContext().ensureActive()
+        if (privateQuery && getSystemService(KeyguardManager::class.java).isKeyguardLocked) {
+            privateReplyVisible = false
+            session.state.update { it.copy(transcript = "", lastResponse = "") }
+            say("Unlock your phone first to hear private notifications.")
+            return false
         }
         say(response)
         return conversational
@@ -326,7 +458,7 @@ class AssistantService : Service() {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val pause = PendingIntent.getService(this, 2, Intent(this, AssistantService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, "jarvis_service").setSmallIcon(R.drawable.ic_notification).setContentTitle("JARVIS is active")
-            .setContentText(detail.take(100)).setVisibility(NotificationCompat.VISIBILITY_SECRET).setOngoing(true).setOnlyAlertOnce(true)
+            .setContentText(if (privateReplyVisible) "Reading notifications privately" else detail.take(100)).setVisibility(NotificationCompat.VISIBILITY_SECRET).setOngoing(true).setOnlyAlertOnce(true)
             .setContentIntent(open).addAction(0, "Pause", pause).addAction(0, "Open app", open).build()
     }
     private fun notifyStatus(detail: String) { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(detail)) }
@@ -341,6 +473,7 @@ class AssistantService : Service() {
         unregisterReceiver(screenReceiver)
         clearConfirmation()
         responder.shutdown()
+        if (privateReplyVisible) session.state.update { it.copy(transcript = "", lastResponse = "", detail = "Paused · tap the mic to resume") }
         // Active recognizers hold leases, so a rapid restart cannot close their model.
         session.state.update { it.copy(running = false, phase = if (it.phase == AssistantPhase.ERROR) it.phase else AssistantPhase.PAUSED) }
         super.onDestroy()

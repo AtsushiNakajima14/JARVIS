@@ -6,7 +6,8 @@ object CommandLexicon {
     private const val MAX_APPLICATIONS = 256
     private val parser = CommandParser()
     private val forbidden = setOf(IntentType.UNKNOWN, IntentType.RECALL, IntentType.CALL,
-        IntentType.MESSAGE, IntentType.CONFIRM, IntentType.CANCEL, IntentType.REMEMBER, IntentType.HELP)
+        IntentType.MESSAGE, IntentType.CONFIRM, IntentType.CANCEL, IntentType.REMEMBER, IntentType.HELP,
+        IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS, IntentType.UNLOCK_PHONE, IntentType.DAILY_BRIEFING)
 
     fun phrases(appLabels: List<String>): List<String> {
         val plain = linkedSetOf(

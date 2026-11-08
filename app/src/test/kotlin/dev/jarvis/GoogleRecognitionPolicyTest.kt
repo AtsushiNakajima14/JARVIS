@@ -70,4 +70,17 @@ class GoogleRecognitionPolicyTest {
         assertFalse(disabled.localAi); assertFalse(disabled.conversation)
         assertTrue(disabled.wakeWord); assertTrue(disabled.history)
     }
+    @Test fun `notification content and announcements require separate explicit opt ins`() {
+        val defaults = assistantSettingsFrom(emptyPreferences())
+        assertFalse(defaults.notificationReading)
+        assertFalse(defaults.notificationAnnouncements)
+        val enabled = assistantSettingsFrom(preferencesOf(booleanPreferencesKey("notification_reading") to true,
+            booleanPreferencesKey("notification_announcements") to true))
+        assertTrue(enabled.notificationReading)
+        assertTrue(enabled.notificationAnnouncements)
+        assertFalse(enabled.notifications)
+        val metadataOnly = assistantSettingsFrom(preferencesOf(booleanPreferencesKey("notifications") to true))
+        assertFalse(metadataOnly.notificationReading)
+        assertFalse(metadataOnly.notificationAnnouncements)
+    }
 }
