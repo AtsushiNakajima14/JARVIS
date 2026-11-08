@@ -1,0 +1,7 @@
+SmolLM2-135M-Instruct, Q4_0
+Publisher: HuggingFaceTB
+Quantization: bartowski
+License: Apache-2.0
+Revision: 09816acd5d99df7be770d85ea30822623dab342c
+SHA-256: bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03
+Source: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q4_0.gguf

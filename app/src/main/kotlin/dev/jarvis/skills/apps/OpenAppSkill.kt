@@ -11,8 +11,11 @@ class OpenAppSkill @Inject constructor(private val apps: ApplicationRepository) 
     override val aliases = setOf("open", "launch", "buksan", "ablihi")
     override fun canHandle(command: ParsedCommand) = command.type == IntentType.OPEN_APPLICATION
     override suspend fun execute(command: ParsedCommand): SkillResult {
-        if (apps.list().isEmpty()) apps.scan()
-        val app = apps.find(command.argument) ?: return SkillResult("I could not find one clear match. Try the full application name.")
+        val app = apps.find(command.argument) ?: run {
+            // Newly installed apps should be available without asking for a manual rescan.
+            apps.scan()
+            apps.find(command.argument)
+        } ?: return SkillResult("I heard ${command.argument}, but could not find one clear installed app. Try the name shown in Installed applications.")
         val intent = apps.launchIntent(app) ?: return SkillResult("That application cannot be opened.")
         return SkillResult("Opening ${app.label}.", launch = intent)
     }

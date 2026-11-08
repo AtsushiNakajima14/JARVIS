@@ -11,8 +11,8 @@ android {
         applicationId = "dev.jarvis"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         ndk { abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,6 +33,7 @@ android {
 }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 dependencies {
+    implementation(project(":assistant:localai"))
     implementation(project(":assistant:parser"))
     implementation(platform("androidx.compose:compose-bom:2025.08.01"))
     implementation("androidx.core:core-ktx:1.17.0")
@@ -65,4 +66,13 @@ dependencies {
     kspAndroidTest("com.google.dagger:hilt-compiler:2.59.2")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+tasks.register("verifyBundledLocalModel") {
+    val model = layout.projectDirectory.file("src/main/assets/local-ai/SmolLM2-135M-Instruct-Q4_0.gguf")
+    inputs.file(model)
+    doLast { check(model.asFile.isFile && model.asFile.length() == 91893088L) {
+        "Bundled local AI model is missing. Run python scripts/provision_local_ai.py before building."
+    } }
+}
+tasks.named("preBuild") { dependsOn("verifyBundledLocalModel") }
 

@@ -36,7 +36,8 @@ class SpeechResponder @Inject constructor(@param:ApplicationContext private val 
     suspend fun speak(text: String, settings: AssistantSettings) = withContext(Dispatchers.Main.immediate) {
         val engine = initialize() ?: throw IllegalStateException("Install an offline text-to-speech voice in Android settings.")
         val locale = if (settings.language == "system") Locale.getDefault() else Locale.forLanguageTag(settings.language)
-        val voices = engine.voices.orEmpty().filter { settings.networkSpeech || !it.isNetworkConnectionRequired }
+        // Google's recognition preference does not authorize uploading local AI replies for synthesis.
+        val voices = engine.voices.orEmpty().filter { !it.isNetworkConnectionRequired }
         val voice = voices.firstOrNull { it.name == settings.voice } ?: voices.firstOrNull { it.locale == locale }
             ?: voices.firstOrNull { it.locale.language == locale.language } ?: voices.firstOrNull { it.locale.language == "en" }
             ?: throw IllegalStateException("Install an offline text-to-speech voice in Android settings.")

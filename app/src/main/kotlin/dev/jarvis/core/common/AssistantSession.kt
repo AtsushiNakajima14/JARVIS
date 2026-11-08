@@ -8,8 +8,10 @@ import javax.inject.Singleton
 
 enum class AssistantPhase { IDLE, STARTING, WAKE_WORD, LISTENING, PROCESSING, SPEAKING, PAUSED, ERROR }
 data class AssistantState(val phase: AssistantPhase = AssistantPhase.IDLE, val detail: String = "Ready when you are",
-    val transcript: String = "", val confirmation: String? = null, val running: Boolean = false)
+    val transcript: String = "", val confirmation: String? = null, val running: Boolean = false,
+    val lastResponse: String = "", val recognitionSource: String = "")
 sealed interface AssistantEvent {
+    data object Wake : AssistantEvent
     data object Listen : AssistantEvent
     data class Text(val text: String) : AssistantEvent
     data object Pause : AssistantEvent
@@ -17,11 +19,9 @@ sealed interface AssistantEvent {
 @Singleton
 class AssistantSession @Inject constructor() {
     val state = MutableStateFlow(AssistantState())
-    val events = Channel<AssistantEvent>(Channel.BUFFERED)
     val launches = Channel<Intent>(Channel.BUFFERED)
     val logs = MutableStateFlow<List<String>>(emptyList())
     @Volatile var visible = false
     fun log(event: String) { logs.update { (listOf("${java.time.LocalTime.now().withNano(0)}  $event") + it).take(60) } }
-    fun send(event: AssistantEvent) { events.trySend(event) }
 }
 

@@ -64,4 +64,61 @@ class CommandParserTest {
         assertEquals(IntentType.BATTERY_STATUS, parser.parse("Jarvis, battery percentage", "Alex").type)
         assertEquals(IntentType.UNKNOWN, parser.parse("Jarvison open mail").type)
     }
+    @Test fun `reported battery phrase and punctuation are understood`() {
+        listOf("jarvis... battery parcentage", "Jarvis. Open Facebook.", "hey Jarvis, please open Facebook", "Can you please open Facebook app?").forEach {
+            val result = parser.parse(it)
+            assertTrue("Rejected: $it", result.type in setOf(IntentType.BATTERY_STATUS, IntentType.OPEN_APPLICATION))
+            if (result.type == IntentType.OPEN_APPLICATION) assertTrue(result.argument in setOf("facebook", "facebook app"))
+        }
+    }
+    @Test fun `polite message preserves recipient and body`() {
+        val result = parser.parse("Jarvis... please text Mom saying Please call Jarvis, at 5!")
+        assertEquals("mom", result.argument)
+        assertEquals("Please call Jarvis, at 5!", result.body)
+    }
+    @Test fun `natural opening phrases work with arbitrary installed app names`() {
+        val phrases = listOf(
+            "Bring up Nebula Notebook", "Take me to Nebula Notebook", "Go to Nebula Notebook",
+            "I want to use Nebula Notebook", "I want to open Nebula Notebook", "I'd like to open Nebula Notebook",
+            "I would like to use Nebula Notebook", "Let's open Nebula Notebook", "Let’s launch Nebula Notebook",
+            "Can you launch Nebula Notebook", "Could you please bring up Nebula Notebook", "Jarvis... please open up Nebula Notebook"
+        )
+        phrases.forEach { input ->
+            val result = parser.parse(input)
+            assertEquals(input, IntentType.OPEN_APPLICATION, result.type)
+            assertEquals(input, "nebula notebook", result.argument)
+        }
+    }
+    @Test fun `device keywords inside app labels do not hijack explicit launches`() {
+        listOf("Battery Atlas", "Flashlight Notebook", "Timer Garden", "Volume Journal", "My Apps Explorer").forEach { name ->
+            val result = parser.parse("bring up $name")
+            assertEquals(name, IntentType.OPEN_APPLICATION, result.type)
+            assertEquals(name.lowercase(), result.argument)
+        }
+    }
+    @Test fun `message body command words never execute device actions`() {
+        val body = "Open Discord, then turn off flashlight and check battery. Confirm?"
+        val result = parser.parse("Could you please text Mom saying $body")
+        assertEquals(IntentType.MESSAGE, result.type)
+        assertEquals("mom", result.argument)
+        assertEquals(body, result.body)
+        val contact = parser.parse("call Battery Shop")
+        assertEquals(IntentType.CALL, contact.type)
+        assertEquals("battery shop", contact.argument)
+    }
+    @Test fun `questions negation and narrative do not become app launches`() {
+        listOf("How do I open Discord?", "Don't open Discord", "Do not launch Discord", "I want to know about Discord", "I would like Discord alternatives").forEach {
+            assertNotEquals(it, IntentType.OPEN_APPLICATION, parser.parse(it).type)
+        }
+        assertEquals(IntentType.REMEMBER, parser.parse("Remember that I want to open Discord for school").type)
+        assertNotEquals(IntentType.CONFIRM, parser.parse("I want to confirm and call Mom").type)
+    }
+    @Test fun `natural timer start and translated torch commands retain their actions`() {
+        val timer = parser.parse("Can you start a timer for five minutes?")
+        assertEquals(IntentType.TIMER, timer.type)
+        assertEquals(300L, timer.value)
+        assertEquals(IntentType.FLASHLIGHT_ON, parser.parse("Buksan ang flashlight").type)
+        assertEquals(IntentType.CAMERA, parser.parse("take me to camera").type)
+        assertEquals(IntentType.SETTINGS, parser.parse("go to settings").type)
+    }
 }

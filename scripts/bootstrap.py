@@ -6,6 +6,8 @@ import shutil
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / '.tooling'
@@ -77,5 +79,6 @@ if __name__ == '__main__':
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for result in pool.map(lambda f: f(), [jdk, gradle, sdk, model]):
             pass
-    print('Toolchain and offline model ready.', flush=True)
+    subprocess.run([sys.executable, str(ROOT / 'scripts/provision_local_ai.py')], check=True)
+    print('Toolchain, wake model and local AI ready.', flush=True)
 

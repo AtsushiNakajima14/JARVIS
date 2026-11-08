@@ -4,18 +4,22 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.jarvis.assistant.parser.FuzzyMatcher
+import dev.jarvis.assistant.parser.ApplicationMatcher
+import dev.jarvis.assistant.parser.NamedApplication
 import dev.jarvis.assistant.parser.normalize
 import dev.jarvis.core.database.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ApplicationRepository @Inject constructor(@param:ApplicationContext private val context: Context, private val dao: JarvisDao) {
+    private val scanLock = Mutex()
     val applications = dao.applications()
-    suspend fun scan(): Int = withContext(Dispatchers.IO) {
+    suspend fun scan(): Int = scanLock.withLock { withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(launcher, 0).mapNotNull { resolved ->
@@ -27,17 +31,22 @@ class ApplicationRepository @Inject constructor(@param:ApplicationContext privat
                     info.firstInstallTime, info.lastUpdateTime)
             }.getOrNull()
         }.distinctBy { it.packageName }
-        dao.replaceApps(apps)
+        // Foreground resumes often leave the inventory unchanged; avoid invalidating all
+        // Room observers or racing an older scan over a more recent package event.
+        if (apps.sortedBy { it.packageName } != dao.applicationList().sortedBy { it.packageName }) dao.replaceApps(apps)
         apps.size
-    }
+    } }
     suspend fun find(query: String): ApplicationEntity? {
         val all = dao.applicationList()
-        all.firstOrNull { normalize(it.label) == normalize(query) || it.packageName == query }?.let { return it }
-        val ranked = all.map { it to FuzzyMatcher.score(query, it.label) }.sortedByDescending { it.second }
-        val first = ranked.firstOrNull() ?: return null
-        return first.first.takeIf { first.second >= 0.74 && (ranked.size == 1 || first.second - ranked[1].second >= 0.09) }
+        val match = ApplicationMatcher.find(query, all.map { NamedApplication(it.packageName, it.label) })
+        return all.firstOrNull { it.packageName == match }
     }
-    suspend fun list() = dao.applicationList()
+    suspend fun list(): List<ApplicationEntity> {
+        val existing = dao.applicationList()
+        if (existing.isNotEmpty()) return existing
+        scan()
+        return dao.applicationList()
+    }
     fun launchIntent(app: ApplicationEntity): Intent? = context.packageManager.getLaunchIntentForPackage(app.packageName)
     private fun category(label: String, category: Int): String {
         val text = normalize(label)

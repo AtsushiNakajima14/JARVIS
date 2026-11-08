@@ -15,4 +15,7 @@ captures/
 *.aab
 Thumbs.db
 .DS_Store
+__pycache__/
+*.py[cod]
+.cxx/
 

@@ -19,12 +19,12 @@ data class ParsedCommand(
     val body: String = ""
 )
 
-/** Deterministic, network-free parsing. Fuzzy matching is restricted to app names. */
+/** Deterministic, network-free parsing; sensitive actions always require explicit words. */
 class CommandParser {
     fun parse(input: String, assistantName: String = "Jarvis"): ParsedCommand {
         val raw = input.trim().take(2000)
-        val prefixes = setOf(assistantName, "Jarvis").joinToString("|") { Regex.escape(normalize(it)) }
-        val text = normalize(raw).replaceFirst(Regex("^(?:$prefixes)\\b[ ,:]*"), "")
+        val originalCommand = stripAssistantPrefix(raw, assistantName)
+        val text = normalize(originalCommand)
         fun command(type: IntentType, argument: String = "", value: Long = 0, body: String = "") =
             ParsedCommand(type, argument = argument, value = value, body = body)
         if (text in setOf("yes", "confirm", "confirm it", "yes please", "oo", "sige", "oo sige")) return command(IntentType.CONFIRM)
@@ -33,12 +33,34 @@ class CommandParser {
         Regex("^(?:remember(?: that)?|tandaan(?: mo)?(?: na)?)\\s+(.+)$").find(text)?.let {
             return command(IntentType.REMEMBER, it.groupValues[1])
         }
+        // Personal text and contact names are data, even when they contain device-command words.
+        Regex("^(?:call|dial|tawagan(?: mo)?|tawagi)\\s+(.+)$").find(text)?.let { return command(IntentType.CALL, it.groupValues[1]) }
+        Regex("^(?:send (?:a )?(?:message|text) to|message|text|i-text|itext)\\s+(.+?)(?:\\s+(?:saying|that says|na)\\s+|:\\s*)(.+)$", RegexOption.IGNORE_CASE).find(originalCommand)?.let {
+            return command(IntentType.MESSAGE, normalize(it.groupValues[1]), body = it.groupValues[2])
+        }
+        Regex("^(?:send (?:a )?(?:message|text) to|message|text|i-text|itext)\\s+(.+)$").find(text)?.let {
+            return command(IntentType.MESSAGE, it.groupValues[1])
+        }
+        val opening = Regex("^(open(?: up)?|launch|start|run|bring up|take me to|go to|i want to (?:open|launch|use|start|run)|i(?: would|['’]d) like to (?:open|launch|use|start|run)|let['’]s (?:open|launch|use)|buksan(?: mo)?(?: ang)?|ablihi(?: ang)?|abrihi(?: ang)?)\\s+(.+)$").find(text)
+        if (opening != null) {
+            val address = opening.groupValues[1]
+            val target = opening.groupValues[2].removeSuffix(" please")
+            val startingTimer = address.substringAfterLast(' ') in setOf("start", "run") &&
+                Regex("^(?:(?:a|the) )?(?:timer\\b|alarm in\\b)").containsMatchIn(target)
+            val enablingTorch = address.startsWith("buksan") && target in setOf("flashlight", "torch", "senter")
+            if (!startingTimer && !enablingTorch) return when (target) {
+                "camera" -> command(IntentType.CAMERA)
+                "settings" -> command(IntentType.SETTINGS)
+                else -> command(IntentType.OPEN_APPLICATION, target)
+            }
+        }
         if (text.contains("flashlight") || text.contains("torch") || text.contains("flash light") || text.contains("senter")) {
             val off = Regex("\\b(off|disable|patayin|i-off|palonga)\\b").containsMatchIn(text)
             val on = Regex("\\b(on|enable|buksan|i-on|pasiga)\\b").containsMatchIn(text)
             return when { off -> command(IntentType.FLASHLIGHT_OFF); on -> command(IntentType.FLASHLIGHT_ON); else -> ParsedCommand(IntentType.UNKNOWN, 0.0) }
         }
-        if (Regex("\\b(battery|baterya|charge percentage)\\b").containsMatchIn(text)) return command(IntentType.BATTERY_STATUS)
+        if (Regex("\\b(battery|batteries|baterya|batery|batterie|charge percentage)\\b").containsMatchIn(text) ||
+            Regex("\\bbuttery\\s+(percentage|percent|level|status)\\b").containsMatchIn(text)) return command(IntentType.BATTERY_STATUS)
         if (Regex("\\b(timer|alarm in)\\b").containsMatchIn(text)) {
             val seconds = durationSeconds(text)
             return if (seconds in 1..86400) command(IntentType.TIMER, value = seconds) else ParsedCommand(IntentType.TIMER, 0.4)
@@ -53,14 +75,6 @@ class CommandParser {
                 text.contains("mute") -> command(IntentType.VOLUME_SET, value = 0)
                 else -> ParsedCommand(IntentType.UNKNOWN, 0.0)
             }
-        }
-        Regex("^(?:call|dial|tawagan(?: mo)?|tawagi)\\s+(.+)$").find(text)?.let { return command(IntentType.CALL, it.groupValues[1]) }
-        val originalCommand = raw.replaceFirst(Regex("^(?:${setOf(assistantName, "Jarvis").joinToString("|") { Regex.escape(it) }})\\b[ ,:]*", RegexOption.IGNORE_CASE), "")
-        Regex("^(?:send (?:a )?(?:message|text) to|message|text|i-text|itext)\\s+(.+?)(?:\\s+(?:saying|that says|na)\\s+|:\\s*)(.+)$", RegexOption.IGNORE_CASE).find(originalCommand)?.let {
-            return command(IntentType.MESSAGE, normalize(it.groupValues[1]), body = it.groupValues[2])
-        }
-        Regex("^(?:send (?:a )?(?:message|text) to|message|text|i-text|itext)\\s+(.+)$").find(text)?.let {
-            return command(IntentType.MESSAGE, it.groupValues[1])
         }
         if (text in setOf("pause", "pause music", "pause the music", "stop music")) return command(IntentType.MUSIC_PAUSE)
         if (text in setOf("play", "play music", "resume music", "resume")) return command(IntentType.MUSIC_PLAY)
@@ -79,9 +93,6 @@ class CommandParser {
         }
         if (text in setOf("open camera", "camera", "buksan ang camera")) return command(IntentType.CAMERA)
         if (text in setOf("settings", "open settings", "show settings")) return command(IntentType.SETTINGS)
-        Regex("^(?:open|launch|start|buksan(?: mo)?(?: ang)?|ablihi(?: ang)?|abrihi(?: ang)?)\\s+(.+)$").find(text)?.let {
-            return command(IntentType.OPEN_APPLICATION, it.groupValues[1])
-        }
         if (text.startsWith("how ") || text.startsWith("what ") || text.startsWith("recall ") || text.contains("remember")) return command(IntentType.RECALL, text)
         return ParsedCommand(IntentType.UNKNOWN, 0.0, text)
     }
@@ -95,6 +106,16 @@ class CommandParser {
             count * when { m.groupValues[2].startsWith("h") || m.groupValues[2] == "oras" -> 3600; m.groupValues[2].startsWith("m") -> 60; else -> 1 }
         }
     }
+}
+
+/** Strip only leading address/politeness, preserving message contents and case. */
+fun stripAssistantPrefix(input: String, assistantName: String = "Jarvis"): String {
+    val names = setOf(assistantName, "Jarvis").filter { it.isNotBlank() }.joinToString("|") { Regex.escape(it) }
+    val wake = Regex("^(?:(?:hey|hi|ok|okay)\\s+)?(?:$names)\\b[\\s,.:;!?…-]*", RegexOption.IGNORE_CASE)
+    val polite = Regex("^(?:please\\s+|(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)", RegexOption.IGNORE_CASE)
+    var text = input.trim().take(2000)
+    repeat(2) { text = text.replaceFirst(wake, "").replaceFirst(polite, "").trim() }
+    return text
 }
 
 fun normalize(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFD)

@@ -13,4 +13,5 @@ gradlew text eol=lf
 *.ie binary
 *.mat binary
 *.dubm binary
+*.gguf binary
 app/src/main/assets/model-en-us/** -text

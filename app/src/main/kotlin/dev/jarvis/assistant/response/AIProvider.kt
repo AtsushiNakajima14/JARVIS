@@ -1,6 +1,6 @@
 package dev.jarvis.assistant.response
 
-/** Optional future extension. No provider, API key, or cloud request is required by JARVIS. */
+/** Chat providers do not execute actions; sensitive actions remain in confirmed native skills. */
 interface AIProvider {
     val name: String
     suspend fun answer(question: String): String

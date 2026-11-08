@@ -4,5 +4,5 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "JARVIS"
-include(":app", ":assistant:parser")
+include(":app", ":assistant:parser", ":assistant:localai")
 

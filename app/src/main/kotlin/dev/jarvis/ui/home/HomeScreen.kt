@@ -19,18 +19,26 @@ import dev.jarvis.ui.components.*
 @Composable fun HomeScreen(vm: AssistantViewModel, listen: () -> Unit, wake: () -> Unit, command: (String) -> Unit, stop: () -> Unit, history: () -> Unit) {
     val state by vm.status.collectAsStateWithLifecycle()
     val recent by vm.history.collectAsStateWithLifecycle()
+    val config by vm.config.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Spacer(Modifier.height(6.dp))
         Text("A little help.\nA little more time.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(Icons.Outlined.Lock, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Personal. Local. Yours.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Your voice. Your assistant.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 AssistantStatus(state)
-                if (state.transcript.isNotBlank()) Text("“${state.transcript}”", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                if (!config.networkSpeech) TextButton(onClick = { vm.boolean("network", true) }) { Text("Use Google speech") }
+                if (state.transcript.isNotBlank()) {
+                    Text("I heard", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("“${state.transcript}”", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                    if (state.recognitionSource.isNotBlank()) Text(state.recognitionSource, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { input = state.transcript }) { Text("Edit command") }
+                }
+                if (state.lastResponse.isNotBlank() && state.lastResponse != state.detail) Text(state.lastResponse, style = MaterialTheme.typography.bodyMedium)
                 FilledIconButton(onClick = listen, shape = CircleShape, modifier = Modifier.size(88.dp).align(Alignment.CenterHorizontally)) {
                     Icon(Icons.Outlined.Mic, "Listen for a command", Modifier.size(34.dp))
                 }
@@ -59,7 +67,7 @@ import dev.jarvis.ui.components.*
             Text("Recent conversations", style = MaterialTheme.typography.titleMedium)
             TextButton(onClick = history) { Text("View all") }
         }
-        if (recent.isEmpty()) Text("Your conversations will appear here. Try saying “Jarvis”, wait for “Yes?”, then speak your command.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        if (recent.isEmpty()) Text("Say “Jarvis”, wait for the listening tone, then speak naturally. You can also tap the microphone or say “Jarvis, battery percentage” together.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         else recent.take(3).forEach { ConversationCard(it) }
         Spacer(Modifier.height(16.dp))
     }
