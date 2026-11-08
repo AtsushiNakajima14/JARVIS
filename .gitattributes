@@ -1,0 +1,16 @@
+* text=auto eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+gradlew text eol=lf
+*.jar binary
+*.fst binary
+*.mdl binary
+*.ie binary
+*.mat binary
+*.dubm binary
+app/src/main/assets/model-en-us/** -text
