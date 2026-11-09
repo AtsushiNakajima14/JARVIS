@@ -1,6 +1,7 @@
 package dev.jarvis.assistant.speech
 
 import dev.jarvis.assistant.parser.*
+import dev.jarvis.assistant.agent.AgentSpeechPolicy
 import org.json.JSONObject
 
 data class SpeechResult(val alternatives: List<String>, val source: String, val wakeOnly: Boolean = false) {
@@ -37,7 +38,8 @@ class OfflineSpeechSelection(private val appLabels: List<String>, private val pa
         return parser.parse(free.alternatives.firstOrNull().orEmpty()).type in setOf(IntentType.UNKNOWN, IntentType.HELP)
     }
     fun choose(free: DecodedUtterance, grammar: DecodedUtterance?): List<String> {
-        val original = free.alternatives
+        val original = free.alternatives.map { ClockSpeechCorrection.correct(it) }
+        if (AgentSpeechPolicy.preservePrimary(original.firstOrNull().orEmpty())) return original
         val first = parser.parse(original.firstOrNull().orEmpty())
         val protected = setOf(IntentType.CALL, IntentType.MESSAGE, IntentType.REMEMBER, IntentType.RECALL,
             IntentType.CONFIRM, IntentType.CANCEL, IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS,
@@ -50,6 +52,9 @@ class OfflineSpeechSelection(private val appLabels: List<String>, private val pa
         if (grammar.wordConfidences.any { !it.isFinite() || it !in 0.0..1.0 || it < 0.55 } || grammar.wordConfidences.average() < 0.78) return original
         val parsed = parser.parse(grammarText)
         if (parsed.confidence < 0.7 || parsed.type in protected + setOf(IntentType.UNKNOWN, IntentType.HELP)) return original
+        // A clear question about time travel or the herb thyme is not a clock request.
+        if (parsed.type == IntentType.TIME_STATUS && first.type != IntentType.TIME_STATUS &&
+            Regex("\\b(?:time|thyme)\\b").containsMatchIn(normalize(original.firstOrNull().orEmpty()))) return original
         val firstIsKnown = first.confidence >= 0.7 && first.type !in setOf(IntentType.UNKNOWN, IntentType.RECALL, IntentType.HELP)
         val failedAppName = first.type == IntentType.OPEN_APPLICATION && ApplicationMatcher.find(first.argument,
             appLabels.mapIndexed { i, label -> NamedApplication(i.toString(), label) }) == null

@@ -10,7 +10,10 @@ enum class IntentType {
     MOST_USED, RARELY_USED, STORAGE, MEMORY_USAGE, DEVICE_INFO, SYSTEM_STATUS,
     REMEMBER, RECALL, SETTINGS, CONFIRM, CANCEL, HELP, UNKNOWN,
     ASSISTANT_IDENTITY, CREATOR, OWNER_IDENTITY, NOTIFICATIONS, RECENT_CONVERSATIONS, UNLOCK_PHONE,
-    GREETING, DAILY_BRIEFING
+    GREETING, DAILY_BRIEFING,
+    DEVICE_HEALTH, PREPARE_PHONE, FILE_SEARCH, RECENT_FILES,
+    REMINDER_CREATE, REMINDER_LIST, REMINDER_COMPLETE, MEMORY_LIST, MEMORY_FORGET,
+    TIME_STATUS, DATE_STATUS
 }
 
 data class ParsedCommand(
@@ -45,6 +48,7 @@ class CommandParser {
             return command(IntentType.MESSAGE, it.groupValues[1])
         }
         PersonalCommandParser.parse(text)?.let { return it }
+        TimeCommandParser.parse(text)?.let { return it }
         val opening = Regex("^(open(?: up)?|launch|start|run|bring up|take me to|go to|i want to (?:open|launch|use|start|run)|i(?: would|['’]d) like to (?:open|launch|use|start|run)|let['’]s (?:open|launch|use)|buksan(?: mo)?(?: ang)?|ablihi(?: ang)?|abrihi(?: ang)?)\\s+(.+)$").find(text)
         if (opening != null) {
             val address = opening.groupValues[1]

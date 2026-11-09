@@ -1,6 +1,5 @@
 package dev.jarvis.assistant.speech
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,6 +9,7 @@ import android.speech.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.jarvis.assistant.parser.CommandLexicon
 import dev.jarvis.core.common.AssistantSettings
+import dev.jarvis.core.voice.MicrophoneLease
 import kotlinx.coroutines.*
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -51,12 +51,13 @@ class AndroidSpeechEngine @Inject constructor(@param:ApplicationContext private 
     }
 
     suspend fun recognize(settings: AssistantSettings, appLabels: List<String>, confirmation: Boolean = false,
-        onReady: (String) -> Unit, onPartial: (String) -> Unit): SpeechResult = withContext(Dispatchers.Main.immediate) {
+        onReady: (String) -> Unit, onPartial: (String) -> Unit,
+        freeForm: Boolean = false): SpeechResult = withContext(Dispatchers.Main.immediate) {
         val language = if (settings.language == "system") Locale.getDefault().toLanguageTag() else settings.language
         val provider = googleProvider()
         val onDevice = onDeviceAvailable()
         val backend = RecognitionPolicy.choose(language, settings.networkSpeech, onDevice, provider != null)
-        if (backend == RecognitionBackend.OFFLINE_COMMANDS) return@withContext offline.recognize(appLabels, confirmation, onReady, onPartial)
+        if (backend == RecognitionBackend.OFFLINE_COMMANDS) return@withContext offline.recognize(appLabels, confirmation, onReady, onPartial, freeForm)
 
         suspend fun attempt(selected: RecognitionBackend): SpeechResult? = try {
             platformRecognize(language, selected, provider, appLabels, confirmation, onReady, onPartial)
@@ -82,21 +83,20 @@ class AndroidSpeechEngine @Inject constructor(@param:ApplicationContext private 
             attempt(fallback)?.let { return@withContext it }
             delay(150)
         }
-        offline.recognize(appLabels, confirmation, onReady, onPartial)
+        offline.recognize(appLabels, confirmation, onReady, onPartial, freeForm)
     }
 
     private suspend fun platformRecognize(language: String, backend: RecognitionBackend,
         provider: RecognitionServiceCandidate?, appLabels: List<String>, confirmation: Boolean,
-        onReady: (String) -> Unit, onPartial: (String) -> Unit): SpeechResult {
+        onReady: (String) -> Unit, onPartial: (String) -> Unit): SpeechResult = MicrophoneLease.exclusive {
         val onDevice = backend == RecognitionBackend.ON_DEVICE
-        val recognizer = if (onDevice && Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-            else {
-                require(backend == RecognitionBackend.PHONE_SERVICE && provider != null)
-                SpeechRecognizer.createSpeechRecognizer(context, ComponentName(provider.packageName, provider.className))
-            }
+        val recognizer = if (onDevice && Build.VERSION.SDK_INT >= 31)
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        else error("Only on-device recognition is permitted")
         val source = if (onDevice) "Phone - on-device speech"
             else "Google speech - ${RecognitionPolicy.providerName(requireNotNull(provider))}"
-        return try {
+        try {
+            val recognitionLanguage = installedLanguage(recognizer, language)
             withTimeout(18000) {
                 suspendCancellableCoroutine<SpeechResult> { continuation ->
                     recognizer.setRecognitionListener(object : RecognitionListener {
@@ -120,9 +120,9 @@ class AndroidSpeechEngine @Inject constructor(@param:ApplicationContext private 
                             else continuation.resumeWithException(SpeechFailure(error))
                         }
                     })
-                    recognizer.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
                         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice)
                         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
@@ -134,12 +134,38 @@ class AndroidSpeechEngine @Inject constructor(@param:ApplicationContext private 
                         else emptyList()
                         if (Build.VERSION.SDK_INT >= 33 && hints.isNotEmpty())
                             putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(hints))
-                    })
+                    }
+                    recognizer.startListening(request)
                 }
             }
         } finally {
             runCatching { recognizer.cancel() }
             runCatching { recognizer.destroy() }
         }
+    }
+
+    private suspend fun installedLanguage(recognizer: SpeechRecognizer, requested: String): String {
+        if (Build.VERSION.SDK_INT < 33) return requested
+        return withTimeoutOrNull(2_000) {
+            suspendCancellableCoroutine { continuation ->
+                try {
+                    recognizer.checkRecognitionSupport(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, requested)
+                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                    }, context.mainExecutor, object : RecognitionSupportCallback {
+                        override fun onSupportResult(support: RecognitionSupport) {
+                            if (continuation.isActive) continuation.resume(
+                                OfflineLanguagePolicy.installedVariant(requested, support.installedOnDeviceLanguages))
+                        }
+                        override fun onError(error: Int) {
+                            if (continuation.isActive) continuation.resume(requested)
+                        }
+                    })
+                } catch (_: RuntimeException) {
+                    if (continuation.isActive) continuation.resume(requested)
+                }
+            }
+        } ?: requested
     }
 }

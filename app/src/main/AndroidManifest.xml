@@ -31,9 +31,22 @@
         android:supportsRtl="true" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.ASSIST" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
         </activity>
         <activity android:name=".device.security.UnlockActivity" android:exported="false" android:excludeFromRecents="true" />
-        <service android:name=".core.voice.AssistantService" android:exported="false" android:foregroundServiceType="microphone" />
+        <activity android:name=".assistant.abilities.FileAccessActivity" android:exported="false" android:excludeFromRecents="true" />
+        <service android:name=".core.voice.AssistantService" android:exported="false" android:foregroundServiceType="microphone|shortService" />
+        <service android:name=".device.assistant.JarvisVoiceInteractionService" android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" android:label="JARVIS">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/voice_interaction_service" />
+        </service>
+        <service android:name=".device.assistant.JarvisVoiceSessionService" android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service android:name=".device.assistant.JarvisRecognitionService" android:exported="true"
+            android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE" android:label="JARVIS offline English">
+            <intent-filter><action android:name="android.speech.RecognitionService" /></intent-filter>
+        </service>
         <service android:name=".device.scanner.NotificationIndexer" android:exported="true" android:label="JARVIS notification access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>

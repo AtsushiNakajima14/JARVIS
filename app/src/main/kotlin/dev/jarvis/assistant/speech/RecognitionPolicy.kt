@@ -27,10 +27,9 @@ object RecognitionPolicy {
         else -> "Google Voice Search"
     }
 
-    /** phoneAvailable means an enabled Google RecognitionService was explicitly found. */
+    /** The companion never falls back to a network recognizer, including after upgrading old settings. */
+    @Suppress("UNUSED_PARAMETER")
     fun choose(language: String, networkAllowed: Boolean, onDeviceAvailable: Boolean, phoneAvailable: Boolean): RecognitionBackend = when {
-        networkAllowed && phoneAvailable -> RecognitionBackend.PHONE_SERVICE
-        language.substringBefore('-').equals("en", true) -> RecognitionBackend.OFFLINE_COMMANDS
         onDeviceAvailable -> RecognitionBackend.ON_DEVICE
         else -> RecognitionBackend.OFFLINE_COMMANDS
     }

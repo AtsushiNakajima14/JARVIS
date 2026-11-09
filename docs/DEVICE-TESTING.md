@@ -1,62 +1,87 @@
 # Device acceptance checks
 
-Run on your own physical Android device before treating this as a dependable daily assistant. Automated verification cannot establish microphone quality, speech language support or manufacturer background policies.
+Run on a physical Android device before relying on JARVIS as a daily companion. Record the app version, phone model, Android version, permissions, speech source and result for each check. Build and JVM results do not establish microphone accuracy, manufacturer background policy or reminder delivery.
 
-The owner reported that version 1.1.0 works on the target Redmi A7 running Android 15 with 3 GB physical RAM. The new 1.2.0 features still need the checks below. Record results from that phone separately from build, JVM and host-native checks. Its 1 GB memory extension is not additional physical RAM.
+Target: Redmi A7, Android 15, 3 GB physical RAM. The owner reported that 1.1.0 worked. The 1.3.0 companion upgrade requires fresh testing; the phone's 1 GB memory extension is not additional physical RAM.
 
-1. Install with `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Open the launcher entry. Confirm initial scanning completes and installed applications have real icons and versions.
-2. Deny Microphone. Confirm the app explains the missing permission and does not crash. Grant it in Android app settings and retry.
-3. Enable notifications and wake listening while the activity is visible. Say “Jarvis”, wait for the listening tone, then ask for battery status. Also say “Jarvis, battery percentage” as one continuous utterance without waiting for a tone. Confirm the command beginning is retained and check the spoken value against Android battery settings.
-4. Lock the screen and repeat after 1, 10 and 30 minutes. Repeat unplugged with battery optimization enabled and disabled. Record battery drain over several hours; software Vosk hotword recognition has a measurable cost.
-5. Tap Pause in the persistent notification. Confirm Android's microphone indicator stops. Restart from the visible app. Revoke Microphone while listening and confirm bounded retry and a safe stop.
-6. Open installed apps from the foreground. After the listening tone, try natural requests such as “Bring up Discord” and “Take me to YouTube”. Repeat in the background and confirm the action notification opens the requested app after a tap.
-7. Deny Camera, request flashlight, and check the explanation. Grant Camera and verify on/off on hardware; repeat while another app holds the camera.
-8. Try media volume, camera, and active music play/pause/next/previous. Disable Notification access and verify the music permission explanation.
-9. Test “Call [unique contact]” and “Send a message to [unique contact] saying [text]”. Cancel, allow the 30-second expiry, lock the screen, and issue an unrelated command. None should execute a pending action. Confirm only once and check the intended dialer/composer and recipient. Test duplicate saved contact names.
-10. Create a 10-second timer with notifications enabled. Repeat locked. Compare exact-alarm granted and denied behavior. Reboot with a pending timer and verify recovery. Clear all data and confirm old timers no longer fire.
-11. Store the Discord/school memory, ask the school question, delete the item, and repeat. Disable memory and history separately. Reopen after process death and verify only enabled persistent data remains.
-12. Enable Contacts, Calendar, Usage access and file selection separately. Check actual data appears locally and denied access is handled. Revoke a selected file grant and delete its index entry.
-13. With Prefer Google speech enabled, test the installed Google phone service with and without connectivity and supported language packs. Disable the preference and test offline English commands; test Filipino, Taglish and Cebuano only where installed on-device language support is available. Verify missing TTS packs leave a visible response and an installation explanation.
-14. Reboot: JARVIS should offer a resume notification without illegally launching the microphone service. Force-stop: reopening should be required.
-15. Run `connectedDebugAndroidTest` with an emulator or attached device to execute Compose and Keystore tests. Check logcat for crashes during all cases.
+## Install and baseline
 
-# Authoritative implementation references
+1. Install the new build with `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Confirm the version in Settings and that existing approved memories survive an update with the same signing key. Keep the repository private; GitHub downloads require an account with access.
+2. Deny Microphone. Type a phone question and a multi-turn request; replies should work without starting a microphone or wake lock. A voice request should explain the missing permission without crashing. Grant Microphone and retry voice. Allow notifications to use service controls, timers, reminders and background action prompts.
+3. Confirm Home shows conversation, status, a phone snapshot and an editable composer. Visit Memory, Reminders, Apps and Device information. App icons, package names and versions should match the phone.
+4. Tap the microphone, wait for the ready tone, and ask for battery status. Compare the result with Android battery settings. Repeat "Jarvis, battery percentage" as one continuous utterance, then with a pause after the wake word; the beginning must be retained.
+5. Install a launcher app while JARVIS runs and ask to open it without refreshing manually. Uninstall it and check that the index changes. Repeat after reopening JARVIS. Try a spoken app alias such as "you tube" and an ambiguous or misspelled app name; uncertain matches should clarify.
+6. In Permissions, open **Default digital assistant**. Cancel Android's chooser and confirm the previous assistant remains. Then choose JARVIS and confirm Android reports it as the active assistant. While unlocked and backgrounded, request an app by voice: it should open directly without an action-notification tap once the system service is ready. Repeat the system assistant gesture, role removal, reboot/rebinding, and a locked phone. Device policy can still restrict launching; the fallback must explain the tap. Becoming the default assistant by itself must not start microphone recording or capture screen contents.
 
-- [Android 17 SDK setup](https://developer.android.com/about/versions/17/setup-sdk)
-- [AGP 9.1 compatibility](https://developer.android.com/build/releases/agp-9-1-0-release-notes)
+## Version 1.3.0 native conversation
+
+Run these with **Optional local AI replies off**, including in airplane mode. The core must need no API account, key or cloud connection.
+
+- Ask "I need to talk to someone." Answer with a unique saved contact, then choose a call or message. JARVIS must retain the person while asking for the remaining detail. Allow Contacts only when needed. Duplicate names or numbers must require clarification instead of guessing.
+- Ask "Help me write something." Answer "My friend," give the message idea, review the draft, and ask to make it shorter. When opening the draft, provide the saved contact name if asked; previously supplied message content must be retained. Confirm that Android's composer contains the intended recipient and text, and that JARVIS never sends it itself.
+- Dictate a message containing words such as "open," "call," "battery" or "delete." They must remain message text. Repeat with case-sensitive names and with politeness inside the message. A clearly introduced new question, such as "Actually, what is my battery?", should replace the pending topic.
+- Cancel during each missing-detail question. Start an unrelated explicit request. Wait more than two minutes before replying to a pending question. Stop/restart the service and lock/unlock the screen. Old recipients, drafts or reminder details must not execute after their context is reset.
+- Ask "Can you show me Messenger?", "Open Messenger" and "I want to check my messages." With multiple chat apps, the last request should ask which app. Save "Remember I use Messenger for chatting," then repeat and verify the approved preference is used. Uninstall the preferred app and check the explanation or choice.
+- Ask "My phone is getting slow." Compare the reported RAM and storage with native settings close in time. Without Usage access it must not invent app usage. With access, verify the bounded recent usage snapshot. The reply must not claim that it inspected every process, killed other apps or cleaned RAM.
+- Ask "Prepare my phone." Check measured battery/connectivity/storage, unfinished reminder information and the consent-gated notification count. Repeat without notification access, with preview reading off, and while locked.
+- Ask a native follow-up such as "And storage?" or "What about RAM?" after a phone query. Ask for a timer without a duration, then answer "five minutes." The next reply should continue the goal instead of requiring the whole request again.
+- Observe Listening, Understanding, Working and Speaking states. Continue a follow-up without the wake word. Say cancel or stop listening. Disable Follow-up conversation and verify there is no automatic follow-up microphone window.
+
+## Offline speech and optional local model
+
+- Ask "What is the time?", "What time is it?", "What is the date?" and "What day is it?" after both the wake word and microphone button. Compare replies with the phone clock and timezone. Record the exact transcript and recognition-source label if a request is wrong. Test normal speaking speed and your actual accent; synthetic Windows voice probes do not establish phone accuracy.
+- With Spotify installed, ask to open it through both wake and microphone paths. Check split-name transcripts such as "spot if i" and "spo te fi" resolve to the installed app. A fragment such as "bathing spo te fi" must ask whether you meant to open Spotify and wait for yes; cancel, ambiguous names, questions and dictated message/memory text must not open an app.
+- Settings must report Android on-device speech availability or the bundled offline English fallback. The old **Prefer Google speech** switch is absent. A stored network-speech preference from an older build must not reactivate cloud recognition.
+- With a supported installed language pack, tap the microphone and verify the displayed source is on-device speech. Disable or remove that support where possible; the bundled English recognizer should be used gracefully. Test absent language packs, provider failure, permission revocation and a bounded no-speech timeout.
+- In airplane mode, test typed and spoken native requests and follow-ups with the optional model off. Verify offline TTS. If the device lacks an offline voice, the app should explain how to install one.
+- A new install should have Optional local AI replies off. An explicitly saved previous choice should remain. Enable it, ask a short general English question, then continue briefly. Compare behavior with it off; phone abilities, memories and reminders must still work.
+- Measure reply latency and peak RAM during optional inference. Test low-memory handling and the 20-second inference deadline. Cancel during model preparation and generation, clear history/memory while busy, and rapidly restart listening. There must be no stale reply, restored deleted data, competing microphones or overlapping heavy models. The tiny model can be inaccurate; record actual output without treating it as phone knowledge.
+
+## Approved memory and files
+
+- Say "Remember my name," provide a name, and inspect the profile category. Save a chat preference, routine and important project; verify categories and original text. Show memories, immediately say "Forget this" after saving one, and try an ambiguous deletion query. Only the intended approved fact should be removed.
+- Disable Local memory and attempt to remember/recall. Review and delete stored facts in the viewer. Confirm notification, reminder and file implementation records do not appear as approved memories or raw JSON.
+- In Memory > Files, select a local document through Android's picker. Search for part of its name and ask for recent documents. Only selected file metadata and MediaStore rows Android makes accessible should appear. Test a missing name, no shared documents, an unavailable provider and a cancelled picker.
+- Revoke a selected file's grant and return to JARVIS; its saved metadata should be pruned. Forget an important file and confirm its lasting grant is released. File contents must not be read or indexed, and the app must not request broad all-files access.
+- Lock during memory/file speech or while a related result is being prepared. Private text must stop or be replaced with an unlock explanation. Saved-data views and conversation context must clear or hide while locked.
+
+## Reminders and daily overview
+
+- Say "Remind me," provide a task, then "in ten minutes." Repeat a complete request such as "Remind me to check my project tomorrow at 9 AM." Confirm the title and local time in Reminders. Ambiguous bare times such as "at 9" should prompt for clarification; invalid/past explicit times must not silently schedule a guessed time.
+- Ask "What should I do today?" and "Give me a briefing." Compare unfinished tasks and the daily overview with saved tasks. Mark an exact task done by voice and through the UI. Duplicate/ambiguous task titles must require a more specific choice.
+- Let a reminder become due with notifications allowed, denied and later re-enabled. The lockscreen notification must remain generic and expose no task title. Android may deliver later than the requested time; measure delay with battery optimization enabled and disabled.
+- Delete or complete a reminder before it is due and confirm its pending alert is cancelled. Restart the app and reboot with pending tasks; saved reminders should survive and missing work should be reconciled. Force-stop and reopen, then inspect outstanding tasks and delivery behavior.
+- Clear all local data with reminders pending. No deleted task or stale alert should return after app restart or reboot. Selected-file grants, approved memories and permitted notification previews should also be cleared.
+
+## Notification awareness and secure unlock
+
+- With notification access denied, ask to read notifications and recent message senders. Grant access while preview reading remains off; content reading must still stay disabled. Music controls should work without opting into preview capture.
+- Enable Read notification previews and send benign messages from another device. Compare app, incoming sender and preview with Android's notification. Ask an app-filtered question, dismiss a notification, and check active readouts again. Recent incoming senders do not establish whom you messaged or full chat histories.
+- Test grouped summaries, repeated updates, ongoing notifications and JARVIS's own notifications. They should not produce loops or duplicate bursts. Use synthetic OTP/security-like text without real credentials; conservative filtering and Android 15 redaction should hide sensitive previews.
+- Enable Announce new notifications while JARVIS listens. Fresh alerts should speak only the app name after a quiet window. Test arrival during a request, follow-up, optional inference and TTS. Test calls, voice calls, Do Not Disturb, burst cooldowns and stale alerts. A notification alone must never start the microphone service.
+- Lock during a private readout. Speech, the private Home display and ephemeral context must clear. Ordinary saved conversation history, foreground notifications and optional model prompts must not contain private ability readouts.
+- Turn off preview reading, revoke notification access, delete one captured item, delete all captured previews and clear all data in separate runs. Queued callbacks must not restore deleted content. Re-enable preview capture deliberately before importing current notifications again. Exercise the seven-day retention window and 200-record limit.
+- Say "Unlock my phone" when already unlocked and securely locked. Tap the background action notification if Android requires it. Only successful Android authentication may unlock the device; cancel must leave it locked. Test a synthetic "remember my PIN" request with no real credential: it should be omitted from transcript, history and saved memory.
+
+## Background, hardware and regression checks
+
+- Leave wake listening active with the screen off for 1, 10 and 30 minutes. Repeat unplugged with battery optimization enabled and disabled. Record several hours of battery drain, peak memory and microphone reliability on the physical 3 GB phone.
+- Pause from the persistent notification and confirm Android's microphone indicator stops. Revoke Microphone while listening and verify bounded retry followed by a safe stop. Rapidly pause/resume without crashes or leaked audio resources.
+- Open an app while JARVIS is visible and while backgrounded. When Android blocks background activity launch, the action notification should open the requested app after a tap. Reboot and confirm JARVIS offers a visible resume action rather than silently opening the microphone.
+- Deny Camera, request the flashlight, then grant it and test on/off hardware. Repeat while another app holds the camera. Test volume, camera and active music play/pause/next/previous, including missing notification access.
+- Cancel, expire and screen-lock call/message confirmations. An unrelated request must cancel the old pending action. Confirm once and verify the actual Android dialer/composer and intended recipient.
+- Test a 10-second timer with notifications enabled and exact-alarm access granted/denied. Reboot with a pending timer. Clear all data and confirm no old timer alert returns. Timers and inexact WorkManager reminders have different scheduling behavior.
+- Run `./gradlew.bat :app:connectedDebugAndroidTest` on an emulator or attached device to execute Compose and Keystore tests. Inspect logcat for crashes throughout the checks above.
+
+## Implementation references
+
+- [Android on-device SpeechRecognizer](https://developer.android.com/reference/android/speech/SpeechRecognizer)
 - [Foreground microphone service restrictions](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start)
-- [Background activity launch restrictions](https://developer.android.com/guide/components/activities/background-starts)
+- [Background activity launches](https://developer.android.com/guide/components/activities/background-starts)
+- [WorkManager](https://developer.android.com/develop/background-work/background-tasks/persistent)
+- [Storage Access Framework](https://developer.android.com/guide/topics/providers/document-provider)
+- [NotificationListenerService](https://developer.android.com/reference/android/service/notification/NotificationListenerService)
+- [Android keyguard dismissal](https://developer.android.com/reference/android/app/KeyguardManager#requestDismissKeyguard(android.app.Activity,%20android.app.KeyguardManager.KeyguardDismissCallback))
 - [Vosk models and resource requirements](https://alphacephei.com/vosk/models)
-- [Vosk Android source](https://github.com/alphacep/vosk-api)
-- [Android notification-listener access and lifecycle](https://developer.android.com/reference/android/service/notification/NotificationListenerService)
-- [Android-owned keyguard dismissal](https://developer.android.com/reference/android/app/KeyguardManager#requestDismissKeyguard(android.app.Activity,%20android.app.KeyguardManager.KeyguardDismissCallback))
-- [Android 15 notification and privacy changes](https://developer.android.com/about/versions/15/behavior-changes-all)
 
-
-## Version 1.1.0 Google speech and local AI checks
-
-- Update over 1.0.0 without uninstalling; verify Settings shows 1.1.0 and existing saved memory remains.
-- On the target device with 3 GB physical RAM, select English and enable Prefer Google speech. Confirm an installed Google service is listed; enable/install it using the Settings links if necessary. This uses Google's Android phone service and requires no Google Cloud Speech-to-Text API key or billing setup.
-- Say “battery percentage”, “bring up Discord” and “take me to YouTube” after the listening tone. Compare the “I heard” text with your speech and the displayed recognition source. Confirm the requested app launches while JARVIS is visible and uses an action notification when backgrounded.
-- Say “Jarvis, battery percentage” and “Jarvis, open Discord” continuously, then repeat with a short pause after “Jarvis”. Verify confidently recognized short commands use offline English recognition without losing the beginning. Say only “Jarvis” and confirm the listening tone starts the Google command window. Tap the microphone and verify the same Google service is selected. If a combined request needs repeating, wait for its prompt and tone.
-- Install a new launcher app while JARVIS runs, then ask it to open that app without manually refreshing. Uninstall it and verify the local inventory updates. Repeat after stopping/reopening JARVIS.
-- Ask a short general question. Verify a real local AI reply, then continue with a follow-up. Say cancel to end the follow-up window and stop listening to pause the service.
-- Disable Google speech, enable airplane mode, and ask a typed general question. The AI reply must still work with no network or external AI app. Wake/English device commands should continue offline; Google recognition itself may need connectivity/language packs.
-- Check memory while waking, during AI inference, and after Pause. The app releases the Vosk model during AI inference and frees the AI model/context after replying; paused wake resources should also be freed. Measure latency, peak memory and battery on the physical 3 GB phone. Check the low-memory explanation under memory pressure and the 20-second inference deadline; the bundled tiny English model can still give inaccurate answers.
-- Cancel during local model preparation/inference, clear conversation/history/memory while busy, and restart listening rapidly. There must be no stale reply, restored deleted history, simultaneous heavy models, crash or leaked microphone.
-- Remove/disable the Google recognizer, revoke Microphone and change network availability. Verify provider failure falls back gracefully and reports the active recognition source.
-
-## Version 1.2.0 personal assistant and notification checks
-
-- Update over 1.1.0 without uninstalling. Check Settings shows 1.2.0, saved memory remains, and both **Read notification previews** and **Announce new notifications** are off until explicitly enabled.
-- Say “Hello Jarvis”, “Who made you?”, “What is my name?” and “Who are you?”. Confirm the creator is Cyril Matt O. Encenso, also known as CyCy, and the greeting addresses CyCy. Ask a short general question and two short follow-ups; verify replies remain local and conversational. Repeat a typed question in airplane mode with Google speech off.
-- With Android Notification access denied, ask “Read my notifications” and “Who messaged me?”. Confirm the explanation. Grant access using **Manage Android notification access** while preview reading remains off; private previews must still be unavailable. Music controls should not require enabling preview capture.
-- Enable **Read notification previews** and send a benign message from another device to a messaging app. While unlocked, ask “Read my notifications”, “Who messaged me?” and an app-filtered question such as “Who messaged me on Discord?”. Compare the app, sender and preview against Android's notification. Test multiple incoming senders, MessagingStyle conversations and a notification with no sender or readable preview.
-- Dismiss one notification in Android and query active notifications again. It must disappear from the active answer. Its permitted incoming sender may remain in recent history until retention expiry or deletion. Send an outgoing message with no incoming notification and verify JARVIS does not claim to have scanned that conversation. Disable the source app's previews or mute its chat and verify JARVIS explains the capture limitation instead of inventing names or messages.
-- Post the same notification repeatedly, update its text, and post grouped children plus a group summary. Test ongoing music/download notifications and JARVIS's own service notification. Confirm duplicate/group-summary/ongoing events do not create repeated readouts or alert loops. Security-code, authenticator, password-reset, financial and secret-visibility notifications should have their content hidden; do not use a real credential in this test. Check Android 15's own redaction is respected.
-- Enable **Announce new notifications** and leave JARVIS idle in wake listening. Post a fresh benign notification and verify the spoken alert contains only the app name. Post during a spoken command, during AI inference, during TTS, and just after the wake word; alerts must wait rather than truncate the command or interrupt the reply. Repeat in a call/voice call and with Do Not Disturb enabled. Test burst cooldowns and stale alerts. Stop JARVIS entirely and confirm a notification never starts the microphone service by itself.
-- Ask for a notification readout while locked: no sender or preview may be spoken or displayed. Start a long readout unlocked, then lock the screen mid-speech; speech and the private Home display must clear. Repeat with “Catch me up”. Check the persistent notification and ordinary command history do not expose notification text. Ask a general AI question while locked and confirm saved preference/prior-chat context is not included; also lock during model preparation/inference and verify a private-context answer is replaced by an unlock explanation.
-- While reading, turn off **Read notification previews**, revoke Android Notification access, use **Delete captured notifications**, delete an individual captured item under **Saved memory & selected data**, and clear all local data in separate runs. Readouts must stop and deleted/disabled previews must not return from queued callbacks, recent-chat queries, history, AI context or the saved-data UI. Re-enable preview reading deliberately before importing active notifications again.
-- Exercise seven-day expiry and the 200-record bound with test notifications. Verify expired/over-limit records are pruned and private or code-like content is never persisted. Test listener disconnection/reconnection, process death, a missing Google speech service, and rapid Pause/resume without stale messages or a microphone leak.
-- Say “Unlock my phone” while already unlocked, then while securely locked. When backgrounded, tap the action notification if Android requires it. Confirm JARVIS opens Android authentication; only a successful Android biometric/device-credential check unlocks the phone. Cancel authentication and verify it stays locked. Repeating the voice phrase must not bypass authentication. Test a synthetic “remember my PIN” request without supplying a real credential: it should be omitted from the transcript/history/memory and receive the credential-handling explanation.
-- Measure memory, latency and battery during wake listening, notification bursts, AI inference, after Pause and after clearing data. The new awareness features must not load a second heavy model, run unbounded notification history, or restart listening against Android background restrictions. Record physical-device results before calling the new build dependable.
+Older 1.1.0 builds used the phone's Google recognition service. That historical setup is superseded by 1.3.0's offline recognition policy. Existing notification, authentication, microphone and native-model regression checks remain applicable as described above.

@@ -35,7 +35,9 @@ internal object PersonalCommandParser {
     private val embeddedApp = Regex("^(?:read(?: out| me)?|show|check|summari[sz]e|tell me(?: about)?) (?:(?:my|the) )?([\\p{L}\\p{N}][\\p{L}\\p{N} .&'’+_-]{0,79}) (?:notifications?|messages?)$")
 
     fun parse(text: String): ParsedCommand? {
-        val query = text.removeSuffix(" please")
+        var query = text.removeSuffix(" please")
+        if (Regex("^ready (?:(?:my|the) )?(?:(?:new|latest|last|recent|unread) )?notifications?\\b").containsMatchIn(query))
+            query = query.replaceFirst("ready ", "read ")
         when (query) {
             in creator -> return ParsedCommand(IntentType.CREATOR)
             in identity -> return ParsedCommand(IntentType.ASSISTANT_IDENTITY)

@@ -15,7 +15,7 @@ class GoogleRecognitionPolicyTest {
     @Test fun `Google app is chosen explicitly ahead of speech services and arbitrary default`() {
         val other = RecognitionServiceCandidate("com.example.recognizer", "DefaultRecognitionService")
         assertEquals(google, RecognitionPolicy.googleProvider(listOf(other, speechServices, google)))
-        assertEquals(RecognitionBackend.PHONE_SERVICE, RecognitionPolicy.choose("en-PH", true, true, true))
+        assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("en-PH", true, true, true))
     }
     @Test fun `disabled Google app falls back to enabled Google speech services`() {
         assertEquals(speechServices, RecognitionPolicy.googleProvider(listOf(google.copy(enabled = false), speechServices)))
@@ -37,8 +37,8 @@ class GoogleRecognitionPolicyTest {
         assertEquals(RecognitionBackend.OFFLINE_COMMANDS, RecognitionPolicy.choose("en-PH", true, false, available))
         assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("fil-PH", true, true, available))
     }
-    @Test fun `turning off phone speech selects offline English and keeps language packs possible`() {
-        assertEquals(RecognitionBackend.OFFLINE_COMMANDS, RecognitionPolicy.choose("en-PH", false, true, true))
+    @Test fun `English and other languages prefer native offline speech when available`() {
+        assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("en-PH", false, true, true))
         assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("fil-PH", false, true, true))
     }
     @Test fun `Google failure can use on-device speech and then local commands`() {
@@ -56,15 +56,19 @@ class GoogleRecognitionPolicyTest {
         assertTrue(RecognitionPolicy.phoneBias(false).contains("battery percentage"))
         assertFalse(RecognitionPolicy.phoneBias(false).any { it.contains("com.") || it.contains("My Private App") })
     }
-    @Test fun `new installs default to Google speech without replacing a stored false preference`() {
-        assertTrue(AssistantSettings().networkSpeech)
-        assertTrue(assistantSettingsFrom(emptyPreferences()).networkSpeech)
+    @Test fun `new installs and upgrades never authorize network speech`() {
+        assertFalse(AssistantSettings().networkSpeech)
+        assertFalse(assistantSettingsFrom(emptyPreferences()).networkSpeech)
         assertFalse(assistantSettingsFrom(preferencesOf(booleanPreferencesKey("network") to false)).networkSpeech)
-        assertTrue(assistantSettingsFrom(preferencesOf(booleanPreferencesKey("network") to true)).networkSpeech)
+        assertFalse(assistantSettingsFrom(preferencesOf(booleanPreferencesKey("network") to true)).networkSpeech)
+        for (language in listOf("en-PH", "fil-PH")) for (available in listOf(true, false)) {
+            assertNotEquals(RecognitionBackend.PHONE_SERVICE, RecognitionPolicy.choose(language, true, available, true))
+        }
     }
     @Test fun `local AI defaults and explicit opt outs map to appended preferences`() {
         val defaults = assistantSettingsFrom(emptyPreferences())
-        assertTrue(defaults.localAi); assertTrue(defaults.conversation)
+        assertFalse(defaults.localAi); assertTrue(defaults.conversation)
+        assertTrue(assistantSettingsFrom(preferencesOf(booleanPreferencesKey("local_ai") to true)).localAi)
         val disabled = assistantSettingsFrom(preferencesOf(booleanPreferencesKey("local_ai") to false,
             booleanPreferencesKey("conversation") to false))
         assertFalse(disabled.localAi); assertFalse(disabled.conversation)

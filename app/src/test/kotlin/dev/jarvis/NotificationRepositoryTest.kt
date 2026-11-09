@@ -172,4 +172,28 @@ class NotificationRepositoryTest {
         assertTrue(notifications.currentRevision() > old)
         assertFalse(notifications.isCurrent(dev.jarvis.assistant.notifications.NotificationAnnouncement("Discord", System.currentTimeMillis(), old)))
     }
+
+    @Test fun `device briefing counts visible notifications without reading private preview aloud`() = runBlocking {
+        settings.boolean("notification_reading", true)
+        notifications.connect { arrayOf(message()) }
+        val answer = notifications.summary()
+        assertTrue(answer.contains("1 active notification"))
+        assertFalse(answer.contains("Alice"))
+        assertFalse(answer.contains("Meet at noon"))
+    }
+
+    @Test fun `device briefing cannot infer notification counts before consent or while locked`() = runBlocking {
+        notifications.connect { arrayOf(message()) }
+        assertTrue(notifications.summary().contains("awareness is off"))
+        assertTrue(dao.preferenceList(NotificationRepository.KIND).isEmpty())
+        settings.boolean("notification_reading", true)
+        shadowOf(context.getSystemService(KeyguardManager::class.java)).setKeyguardLocked(true)
+        assertTrue(notifications.summary().contains("Unlock your phone"))
+        assertTrue(dao.preferenceList(NotificationRepository.KIND).isEmpty())
+    }
+
+    @Test fun `briefing with no connected listener does not report zero unread messages`() = runBlocking {
+        settings.boolean("notification_reading", true)
+        assertTrue(notifications.summary().contains("not connected"))
+    }
 }

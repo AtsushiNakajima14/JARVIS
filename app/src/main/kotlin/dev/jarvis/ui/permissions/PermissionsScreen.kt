@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import dev.jarvis.core.permissions.PermissionStatus
 import dev.jarvis.ui.AssistantViewModel
 import dev.jarvis.ui.components.SectionLabel
+import dev.jarvis.device.assistant.DefaultAssistant
 
 @Composable fun PermissionsScreen(vm: AssistantViewModel) {
     val context = LocalContext.current
@@ -37,6 +38,7 @@ import dev.jarvis.ui.components.SectionLabel
     val file = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }; vm.addFile(uri) }
     }
+    val assistantRole = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { revision++ }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { revision++ }
     fun ask(value: String) { requested = value; permission.launch(value) }
     fun open(action: String, packageUri: Boolean = false) {
@@ -44,12 +46,16 @@ import dev.jarvis.ui.components.SectionLabel
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
         Text("You’re in control.", style = MaterialTheme.typography.headlineMedium)
-        Text("Only the microphone is needed for voice. Enable optional access when you want a skill to use it.", modifier = Modifier.padding(vertical = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Only the microphone is needed for voice. Enable optional access when you want your companion to use it.", modifier = Modifier.padding(vertical = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         // Revision is intentionally read to refresh settings after returning from Android permission pages.
         key(revision) {
             SectionLabel("Voice & alerts")
-            PermissionRow("Microphone", "Wake word and spoken commands", PermissionStatus.microphone(context)) { ask(Manifest.permission.RECORD_AUDIO) }
-            if (Build.VERSION.SDK_INT >= 33) PermissionRow("Notifications", "Listening status, background actions and timers", PermissionStatus.granted(context, Manifest.permission.POST_NOTIFICATIONS)) { ask(Manifest.permission.POST_NOTIFICATIONS) }
+            PermissionRow("Default digital assistant", "Choose JARVIS in Android to open apps directly from voice while your phone is unlocked.", DefaultAssistant.isSelected(context)) {
+                runCatching { assistantRole.launch(DefaultAssistant.requestIntent(context)) }
+                    .onFailure { vm.notice.value = "Open Android Settings, then Default apps and Digital assistant app, and select JARVIS." }
+            }
+            PermissionRow("Microphone", "Wake word and conversation", PermissionStatus.microphone(context)) { ask(Manifest.permission.RECORD_AUDIO) }
+            if (Build.VERSION.SDK_INT >= 33) PermissionRow("Notifications", "Listening status, reminders, background actions and timers", PermissionStatus.granted(context, Manifest.permission.POST_NOTIFICATIONS)) { ask(Manifest.permission.POST_NOTIFICATIONS) }
             PermissionRow("Camera", "Flashlight control", PermissionStatus.granted(context, Manifest.permission.CAMERA)) { ask(Manifest.permission.CAMERA) }
             SectionLabel("Optional device knowledge")
             PermissionRow("Contacts", "Encrypted names and phone numbers", PermissionStatus.granted(context, Manifest.permission.READ_CONTACTS)) {
@@ -62,7 +68,7 @@ import dev.jarvis.ui.components.SectionLabel
             val notificationAccess = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
             PermissionRow("Notification access", "Music controls and optional notification awareness. Preview capture and spoken alerts have separate switches in Settings.", notificationAccess) { open(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
             if (Build.VERSION.SDK_INT >= 31) PermissionRow("Bluetooth status", "Read whether Bluetooth is enabled", PermissionStatus.granted(context, Manifest.permission.BLUETOOTH_CONNECT)) { ask(Manifest.permission.BLUETOOTH_CONNECT) }
-            OutlinedButton(onClick = { file.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) { Text("Select a file to index") }
+            OutlinedButton(onClick = { vm.beginFileSelection(); file.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) { Text("Select a file to index") }
             Text("Only its name, size and access URI are saved. File contents are never read.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SectionLabel("Background reliability")
             val unrestricted = context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)

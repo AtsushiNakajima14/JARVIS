@@ -9,6 +9,8 @@ import dev.jarvis.assistant.notifications.NotificationRepository
 import dev.jarvis.assistant.parser.IntentType
 import dev.jarvis.assistant.parser.ParsedCommand
 import dev.jarvis.assistant.response.AssistantPersona
+import dev.jarvis.assistant.abilities.ReminderRepository
+import java.time.LocalTime
 import dev.jarvis.device.security.UnlockActivity
 import dev.jarvis.skills.AssistantSkill
 import dev.jarvis.skills.SkillResult
@@ -17,7 +19,8 @@ import javax.inject.Inject
 /** Grounded identity and phone awareness do not depend on the tiny model guessing. */
 class PersonalAssistantSkill @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val notifications: NotificationRepository
+    private val notifications: NotificationRepository,
+    private val reminders: ReminderRepository
 ) : AssistantSkill {
     override val name = "Personal assistant"
     override val description = "Personal identity, notification awareness and Android's secure unlock prompt."
@@ -27,14 +30,19 @@ class PersonalAssistantSkill @Inject constructor(
     override suspend fun execute(command: ParsedCommand): SkillResult = when (command.type) {
         IntentType.CREATOR -> SkillResult("I was created by ${AssistantPersona.CREATOR_NAME}, also known as ${AssistantPersona.CREATOR_ALIAS}.")
         IntentType.OWNER_IDENTITY -> SkillResult("You're ${AssistantPersona.CREATOR_NAME}. I'll call you ${AssistantPersona.FRIENDLY_NAME}.")
-        IntentType.ASSISTANT_IDENTITY -> SkillResult("I'm JARVIS, ${AssistantPersona.FRIENDLY_NAME}'s personal assistant. I can help with phone commands, notifications you allow, and short local conversations.")
-        IntentType.GREETING -> SkillResult("Hi, ${AssistantPersona.FRIENDLY_NAME}. I'm here and ready to help. What do you need?")
+        IntentType.ASSISTANT_IDENTITY -> SkillResult("I'm JARVIS, ${AssistantPersona.FRIENDLY_NAME}'s private Android companion. Tell me what you need, and I'll help with your phone, communication, memories, and day-to-day tasks.")
+        IntentType.GREETING -> {
+            val greeting = when (LocalTime.now().hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
+            val capacity = context.getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val battery = if (capacity in 0..100) " Your battery is at $capacity percent." else ""
+            SkillResult("$greeting, ${AssistantPersona.FRIENDLY_NAME}.$battery What's on your mind?")
+        }
         IntentType.NOTIFICATIONS -> SkillResult(notifications.answer(recentChats = false, appFilter = command.argument))
         IntentType.RECENT_CONVERSATIONS -> SkillResult(notifications.answer(recentChats = true, appFilter = command.argument))
         IntentType.DAILY_BRIEFING -> {
             val capacity = context.getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             val battery = if (capacity in 0..100) "Your battery is at $capacity percent. " else ""
-            SkillResult("Here's your briefing, ${AssistantPersona.FRIENDLY_NAME}. $battery${notifications.answer(recentChats = false)}")
+            SkillResult("Here's your briefing, ${AssistantPersona.FRIENDLY_NAME}. $battery${reminders.todaySummary()} ${notifications.answer(recentChats = false)}")
         }
         IntentType.UNLOCK_PHONE -> {
             if (!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked) SkillResult("Your phone is already unlocked, ${AssistantPersona.FRIENDLY_NAME}.")

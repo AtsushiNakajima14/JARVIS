@@ -20,6 +20,8 @@ import dev.jarvis.core.database.CommandHistoryEntity
         AssistantPhase.WAKE_WORD -> "Say Jarvis"
         AssistantPhase.LISTENING -> "Listening…"
         AssistantPhase.PROCESSING -> "Processing…"
+        AssistantPhase.UNDERSTANDING -> "Understanding…"
+        AssistantPhase.WORKING -> "Working…"
         AssistantPhase.SPEAKING -> "Speaking…"
         AssistantPhase.PAUSED -> "Listening is paused"
         AssistantPhase.ERROR -> "Let’s try again"

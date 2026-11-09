@@ -1,86 +1,105 @@
 # Build validation
 
-Verified on 2026-11-09 (Asia/Manila), version **1.2.0**, version code **3**.
+Verified on 2026-11-09 (Asia/Manila), version **1.3.0**, version code **4**.
 
-- Debug APK: built and APK Signature Scheme v2 verifies.
-- Optimized release APK: built with R8/resource shrinking; unsigned and requires a release signing key before installation.
-- Android test APK: compiled (three Compose tests and one Keystore test); no connected-device execution.
-- Unit tests: **157 passed**, zero failures, errors or skipped tests.
-- Android lint: **0 errors, 20 warnings**, all dependency update suggestions.
-- APK metadata: `dev.jarvis`, minimum SDK 26, target/compile SDK 37; launcher `dev.jarvis.MainActivity`.
-- No Internet permission is present in the APK. Google's separately installed recognition service may process speech online under its own permissions; local answers and notification processing use no cloud AI endpoint.
-- Packaged `UnlockActivity` is `exported=false` and excluded from recents. It requests Android authentication and never collects a device credential.
-- The debug signing certificate matches published 1.0.0 and 1.1.0, allowing an update without uninstalling. Certificate SHA-256: `d84aea7c56747fc78ee90001ddf15ab4331e59179f6e226f61b28b2043cc57fb`.
-- Both APKs contain Vosk and local AI native libraries for arm64-v8a, armeabi-v7a, x86 and x86_64. R8 retains the local AI JNI entry points.
-- Every packaged 64-bit native library has 16 KB ELF LOAD alignment. The local AI library has 16 KB alignment on all four ABIs. Both APKs pass `zipalign -c -P 16 4`.
-- Both models and their licenses are present. The 91,893,088-byte local AI model matches its pinned SHA-256 in both APKs.
+- **255 tests passed**, with no failures, errors or skipped tests: 102 parser, 149 app and 4 local-runtime tests.
+- Android lint: **0 errors, 25 warnings** (22 dependency update suggestions, two Kotlin style suggestions and one inlined constant compatibility warning).
+- Debug APK and optimized R8 release APK built. The release APK is unsigned; the downloadable personal test APK is debug-signed.
+- Android test APK compiled (three Compose tests and one Keystore test). No connected device or emulator was available; these tests were not executed on Android hardware.
+- Debug APK Signature Scheme v2 verifies. The certificate matches releases 1.0.0 through 1.2.0, allowing an update without uninstalling. Certificate SHA-256: `d84aea7c56747fc78ee90001ddf15ab4331e59179f6e226f61b28b2043cc57fb`.
+- APK metadata: `dev.jarvis`, minimum SDK 26, compile/target SDK 37, launcher `dev.jarvis.MainActivity`.
+- The packaged APK has **no Internet permission**. Speech uses Android's on-device recognizer or the bundled offline recognizer; the platform factory cannot fall back to network speech. TTS selects offline voices. The native agent works with optional local-model replies disabled.
+- Both APKs pass `zipalign -c -P 16 4`. Packaged 64-bit native libraries have at least 16 KB ELF LOAD alignment; the local AI library has 16 KB alignment on all four ABIs.
+- Both APKs contain Vosk/local AI libraries for arm64-v8a, armeabi-v7a, x86 and x86_64, plus both models and bundled licenses. The 91,893,088-byte optional local model matches its pinned SHA-256. R8 retains `dev.jarvis.localai.NativeLlm` and JNI entry points.
 
 ## Checks run
 
 ```powershell
+$env:ANDROID_USER_HOME = Join-Path (Get-Location) '.tooling/android-user-home'
 ./scripts/build.ps1 -Tasks @(
     ':assistant:parser:test', ':assistant:localai:testDebugUnitTest',
     ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug',
     ':app:assembleDebugAndroidTest', ':app:assembleRelease',
+    '-Pkotlin.compiler.execution.strategy=in-process', '-Pksp.incremental=false',
     '--no-daemon', '--no-parallel', '--max-workers=1'
 )
 ```
 
-| Suite | Passed |
-| --- | ---: |
-| `CommandLexiconTest` | 7 |
-| `CommandParserTest` | 20 |
-| `PersonalCommandParserTest` | 10 |
-| `SpeechActivityTest` | 6 |
-| `SpeechSelectionTest` | 7 |
-| `LocalLlmTest` | 4 |
-| `ApplicationIndexSchedulerTest` | 3 |
-| `ApplicationIndexSyncTest` | 4 |
-| `ConversationContextTest` | 4 |
-| `DatabaseMemoryTest` | 6 |
-| `GoogleRecognitionPolicyTest` | 11 |
-| `LocalModelCopyTest` | 5 |
-| `LocalPromptTest` | 10 |
-| `NativeSpeechRegressionTest` | 1 |
-| `NotificationPolicyTest` | 14 |
-| `NotificationRepositoryTest` | 7 |
-| `PrivateCommandPolicyTest` | 2 |
-| `SkillMatchingTest` | 3 |
-| `SpeechRecognitionTest` | 17 |
-| `UnlockActivityTest` | 3 |
-| `VoskModelLeaseTest` | 9 |
-| `VoskResultReaderTest` | 4 |
+The final build completed successfully. The isolated Android user directory uses the existing debug signing key so updates retain the same certificate. Build caches, keys and APKs are ignored by Git.
 
-## Personal assistant and notification evidence
+| Module | Suite | Passed |
+| --- | --- | ---: |
+| parser | `AgentCoreTest` | 34 |
+| parser | `ReportedPhoneTranscriptsTest` | 4 |
+| parser | `SpokenApplicationRecoveryTest` | 9 |
+| parser | `CommandLexiconTest` | 7 |
+| parser | `CommandParserTest` | 20 |
+| parser | `PersonalCommandParserTest` | 10 |
+| parser | `SpeechActivityTest` | 6 |
+| parser | `SpeechSelectionTest` | 7 |
+| parser | `TimeCommandParserTest` | 5 |
+| localai | `LocalLlmTest` | 4 |
+| app | `ApplicationIndexSchedulerTest` | 3 |
+| app | `ApplicationIndexSyncTest` | 4 |
+| app | `CompanionPoliciesTest` | 6 |
+| app | `CompanionRepositoryTest` | 10 |
+| app | `ConversationContextTest` | 4 |
+| app | `DatabaseMemoryTest` | 6 |
+| app | `DefaultAssistantTest` | 5 |
+| app | `DeviceHealthAdviceTest` | 4 |
+| app | `DeviceKnowledgeRepositoryTest` | 2 |
+| app | `GoogleRecognitionPolicyTest` | 11 |
+| app | `LocalModelCopyTest` | 5 |
+| app | `LocalPromptTest` | 10 |
+| app | `MicrophoneLeaseTest` | 2 |
+| app | `NativeCompanionIntegrationTest` | 5 |
+| app | `NativeSpeechRegressionTest` | 1 |
+| app | `NotificationPolicyTest` | 14 |
+| app | `NotificationRepositoryTest` | 10 |
+| app | `OfflineLanguagePolicyTest` | 2 |
+| app | `PrivateCommandPolicyTest` | 2 |
+| app | `SkillMatchingTest` | 3 |
+| app | `SpeechRecognitionTest` | 17 |
+| app | `TimeSpeechTest` | 7 |
+| app | `UnlockActivityTest` | 3 |
+| app | `VoskModelLeaseTest` | 9 |
+| app | `VoskResultReaderTest` | 4 |
 
-Parser tests cover creator/owner identity, greetings, briefings, natural notification requests, arbitrary app filters, explicit notification follow-ups and protected message bodies. Six PCM-energy tests cover the new quiet-alert signal without modifying recognition input.
+## Companion and speech evidence
 
-Seven Robolectric/Room notification repository tests exercise permission and opt-in requirements, importing current notifications after first consent, AES-GCM storage rather than plaintext, locked readouts, code/secret filtering, stale capture after deletion, independent app-only announcements, metadata-only operation, recent incoming senders and preview opt-out. These use a real in-memory Room database and AES-GCM test converter; they are not physical Android Keystore verification. Fourteen policy/ledger tests cover bounded history, expiry, deduplication, cooldowns, filtering and truthful notification-only scope.
+The pure Kotlin agent tests exercise goal classification, synonym-based semantic similarity, fuzzy/segmented app names, slot collection, communication and writing follow-ups, timer/reminder times, timezone handling, cancellation, two-minute expiry, explicit topic changes, and literal message/memory bodies. The native core can select abilities and clarify supported goals without a language model.
 
-Three Robolectric unlock tests verify that a secure locked device is not unlocked by the request, Android callback success finishes the flow, cancellation leaves it locked, and an already-unlocked device needs no authentication UI. The real Android authentication screen still requires device testing.
+Reported transcript regressions cover split Spotify names, the uncertain fragment "bathing spo te fi" with explicit confirmation, YouTube Music matching the installed YT Music label, "ready my notifications", existing creator/notification questions, and an unclear app slot followed by a corrected name. Questions, negation, missing/ambiguous apps, saved facts and dictated bodies cannot authorize a guessed app launch. Current conversation turns identify typed versus voice input; the Home screen exposes the active speech source. Old history entries do not establish voice accuracy.
 
-Credential-command tests cover omission of PIN/password disclosures and preservation of ordinary security-help questions. Notification text is not recorded in ordinary command history or local AI conversation. Source review and lifecycle guards cover cancelling a private readout on screen lock, deletion or permission revocation; actual TTS interruption and live notification timing remain device checks.
+Ten new clock/date utterances across Microsoft David and Zira were decoded by the real Windows Vosk 0.3.45 runtime. The saved raw results pass through the current Kotlin Vosk reader, confidence selector and parser. One observed free transcript, "what is the dave", is rescued by confident date grammar. Spotify host probes also reproduced "spot if i", "spot of i" and "spo te fi" spellings; installed-app canonical matching and bounded pronunciation aliases cover those forms. Android uses Vosk 0.3.75, so synthetic Windows probes do not establish microphone or accent accuracy on the Redmi.
 
-The on-phone AI prompt has a friendly CyCy persona and creator attribution, up to two short turns, a normal 1350-byte limit and a 440-byte compact fallback. A matching host-native tokenizer measured one normal prompt at 194 tokens and a dense Unicode fixture at 622 tokens; its compact retry used 165 tokens. This establishes the tested fallback behavior, not phone speed. Private context is excluded while locked and rechecked after model preparation/inference.
+The previous 98 synthetic native waveform checks and eight retained raw regression fixtures cover continuous/paused wake requests, readiness tones, stale pre-roll and unrelated speech. Those earlier waveform runs are historical evidence; the current suite rechecks their retained Kotlin fixtures. The local language model previously produced a real CPU host reply; its Android runtime remains compiled for all four ABIs. Four JNI-wrapper tests use a fake backend for UTF-8, serialization, cancellation and bounds, not physical Android inference.
 
-## Native host checks
+## Android abilities and privacy evidence
 
-The previous synthetic voice regressions passed **98 waveform checks** using the bundled model with Windows Vosk 0.3.45 (Android uses 0.3.75): 66 baseline cases across two English voices and three speaking rates, plus 32 edge cases for tones, prior speech, replay and combined/paused commands. Eight actual native results still pass through the Kotlin reader, wake trimming, confidence selector and parser in the current test suite. These synthetic checks do not establish real microphone or accent accuracy.
+Robolectric/Room/WorkManager tests verify encrypted approved memories and reminders, opaque worker input, durable scheduling, completion/deletion cancellation, generic reminder notifications, ambiguity handling, file metadata encryption, persisted grant requirements and revocation, and rejection of stale picker results after clearing. Memory categories remain local and only explicit memories are used for preference recall.
 
-The pinned quantized model previously generated a real reply with the matching llama.cpp CPU host runtime. The Android JNI runtime remains compiled for all four ABIs; JNI unit tests use a fake backend for serialization, UTF-8, cancellation and resource limits. Android-native AI inference has not been run on attached hardware here.
+Device knowledge tests check native battery capture and timestamped persistence, unavailable permissions, lock gating, measured health advice and truthful process-access limits. Reminder summaries and permitted notification counts are grounded in local records. Notification tests cover consent, access revocation, lock checks, bounded retention, filtering, deduplication, incoming senders and the count-only briefing API.
 
-Runtime: llama.cpp `bb4caa7540188872173c44d161602d9271386413`. Model SHA-256: `bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03`.
+Five default-assistant tests exercise selected/system-ready/unlocked background delivery, role selection without binding, secure-lock fallback, visible-activity delivery and notification fallback. The packaged voice and recognition services require Android's binding permissions. Android owns role selection; the service never silently chooses itself, records upon binding, or requests screen structure/screenshots. Actual role binding and background-launch permission on the Redmi remain device checks.
+
+A shared microphone lease prevents overlap between wake recording, Android speech recognition and the system assistant recognition service. Cancellation tests ensure a new owner waits for old recorder cleanup and a cancelled waiter cannot retain the microphone. Screen locking cancels private work, clears context and returns an active voice session to serialized wake listening. Text-only sessions need no microphone permission or automatic voice follow-up. Real microphone handoffs and lock-screen TTS interruption still require hardware testing.
+
+Credentials are excluded from transcripts, memory and ordinary history. Android's secure unlock prompt owns authentication; no device PIN is stored or entered. Private ability readouts are excluded from ordinary history and optional model context. Privacy clearing cancels reminder work, releases file grants and invalidates queued context/imports.
 
 ## APK artifacts
 
-- `app/build/outputs/apk/debug/app-debug.apk`: **199.2 MiB** (208,924,858 bytes).
-  - Published as `JARVIS-1.2.0-debug.apk`.
-  - SHA-256: `21980e23a097c58bcd7b2e3de8e670c44b9a9c43c003a400736c0add19a3cac7`.
-- `app/build/outputs/apk/release/app-release-unsigned.apk`: **180.6 MiB** (189,388,514 bytes).
-  - SHA-256: `050ed32e5c187dc14301f8a0615b73c28bff6047e5b3c95dca8aa0a73cb86f0a`.
+- `app/build/outputs/apk/debug/app-debug.apk`: **199.9 MiB** (209,580,507 bytes).
+  - SHA-256: `0cc591a7a15bf3daee8014aa824f86d4598475e4a314747c79a79ad56306d5f4`.
+- `app/build/outputs/apk/release/app-release-unsigned.apk`: **180.8 MiB** (189,538,282 bytes).
+  - SHA-256: `9f4600716f8c75125ba6e47a3f3cf2589d336911e45051340e81566a0ded0df6`.
+
+Release asset name: `JARVIS-1.3.0-debug.apk`, with a SHA-256 checksum asset. The repository remains private; downloads require a signed-in account with repository access.
 
 ## Remaining device checks
 
-The owner reports that 1.1.0 works. No phone or emulator was connected during the 1.2.0 validation. New notification access/setup, live incoming previews, alert timing, RMS quiet detection, TTS cancellation on locking/revocation, actual authentication UI, microphone accuracy, app launching, latency, peak memory, battery and screen-off/OEM reliability still require the [device checklist](DEVICE-TESTING.md) on the Redmi A7 running Android 15 with 3 GB physical RAM. On-device Compose and Keystore tests were not run.
+No phone or emulator was connected during this validation. The owner reports that some earlier successful entries were typed; those entries are not evidence of successful voice recognition. New speech intake and pronunciation recovery, live on-device language packs, actual accent/microphone accuracy, default-assistant role setup, unlocked direct app opening, reminder timing, notification delivery, real authentication UI, screen-off/OEM behavior, peak RAM and battery require the [device checklist](DEVICE-TESTING.md) on the Redmi A7 running Android 15 with 3 GB physical RAM.
 
-The tiny English model is intended for short conversation and can give inaccurate answers. Its CPU/thread/context/output/deadline limits and sequential model release do not establish acceptable speed on that phone. The downloadable APK is a debug-signed personal device test prerelease.
+The optional SmolLM2-135M-Instruct Q4_0 model can be slow or inaccurate and does not authorize Android actions. Its thread/context/output/deadline limits are not a measurement of phone performance. Native goal understanding is bounded; Android does not provide unrestricted general intelligence or access to other apps' private databases.
+
+Runtime: llama.cpp `bb4caa7540188872173c44d161602d9271386413`. Model SHA-256: `bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03`.

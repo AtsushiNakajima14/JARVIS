@@ -8,6 +8,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.jarvis.MainActivity
 import dev.jarvis.R
 import dev.jarvis.skills.timer.TimerScheduler
+import dev.jarvis.assistant.abilities.ReminderRepository
 import kotlinx.coroutines.*
 import javax.inject.Inject
 
@@ -15,10 +16,20 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
     @Inject lateinit var timers: TimerScheduler
+    @Inject lateinit var reminders: ReminderRepository
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch { try { timers.restore() } finally { pending.finish() } }
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                withTimeout(8_000) {
+                    timers.restore()
+                    reminders.restore()
+                }
+            } catch (_: Exception) {
+                // WorkManager retains existing jobs; opening JARVIS retries any missing reminder work.
+            } finally { pending.finish() }
+        }
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("jarvis_service", "Assistant status", NotificationManager.IMPORTANCE_LOW))

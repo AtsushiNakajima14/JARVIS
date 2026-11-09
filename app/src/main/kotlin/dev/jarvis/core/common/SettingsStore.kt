@@ -12,17 +12,17 @@ import javax.inject.Singleton
 private val Context.settingsData by preferencesDataStore("jarvis_settings")
 data class AssistantSettings(val wakeWord: Boolean = true, val background: Boolean = true, val name: String = "Jarvis",
     val speed: Float = 1f, val pitch: Float = 1f, val language: String = "system", val voice: String = "",
-    val networkSpeech: Boolean = true, val history: Boolean = true, val memory: Boolean = true, val notifications: Boolean = false,
-    val localAi: Boolean = true, val conversation: Boolean = true,
+    val networkSpeech: Boolean = false, val history: Boolean = true, val memory: Boolean = true, val notifications: Boolean = false,
+    val localAi: Boolean = false, val conversation: Boolean = true,
     val notificationReading: Boolean = false, val notificationAnnouncements: Boolean = false)
 
 internal fun assistantSettingsFrom(preferences: Preferences): AssistantSettings = with(preferences) {
     AssistantSettings(this[booleanPreferencesKey("wake")] ?: true, this[booleanPreferencesKey("background")] ?: true,
         this[stringPreferencesKey("name")] ?: "Jarvis", this[floatPreferencesKey("speed")] ?: 1f,
         this[floatPreferencesKey("pitch")] ?: 1f, this[stringPreferencesKey("language")] ?: "system",
-        this[stringPreferencesKey("voice")] ?: "", this[booleanPreferencesKey("network")] ?: true,
+        this[stringPreferencesKey("voice")] ?: "", false,
         this[booleanPreferencesKey("history")] ?: true, this[booleanPreferencesKey("memory")] ?: true,
-        this[booleanPreferencesKey("notifications")] ?: false, this[booleanPreferencesKey("local_ai")] ?: true,
+        this[booleanPreferencesKey("notifications")] ?: false, this[booleanPreferencesKey("local_ai")] ?: false,
         this[booleanPreferencesKey("conversation")] ?: true,
         this[booleanPreferencesKey("notification_reading")] ?: false,
         this[booleanPreferencesKey("notification_announcements")] ?: false)

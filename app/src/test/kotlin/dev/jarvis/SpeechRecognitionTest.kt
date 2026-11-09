@@ -49,12 +49,12 @@ class SpeechRecognitionTest {
     @Test fun `incorrect app slot can use a recognized installed app phrase`() {
         assertEquals("open discord", selection.choose(DecodedUtterance(listOf("open this guy")), confident("open discord")).first())
     }
-    @Test fun `english offline requests use command vocabulary even when on device service exists`() {
-        assertEquals(RecognitionBackend.OFFLINE_COMMANDS, RecognitionPolicy.choose("en-PH", false, true, true))
+    @Test fun `native offline speech is preferred and bundled English remains a fallback`() {
+        assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("en-PH", false, true, true))
         assertEquals(RecognitionBackend.OFFLINE_COMMANDS, RecognitionPolicy.choose("en-US", false, false, true))
     }
-    @Test fun `network choice actually selects phone service only after opt in`() {
-        assertEquals(RecognitionBackend.PHONE_SERVICE, RecognitionPolicy.choose("en-PH", true, true, true))
+    @Test fun `legacy network preference cannot enable cloud recognition`() {
+        assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("en-PH", true, true, true))
         assertEquals(RecognitionBackend.OFFLINE_COMMANDS, RecognitionPolicy.choose("en-PH", true, false, false))
         assertEquals(RecognitionBackend.ON_DEVICE, RecognitionPolicy.choose("fil-PH", false, true, true))
     }

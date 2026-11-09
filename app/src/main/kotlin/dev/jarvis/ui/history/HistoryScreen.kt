@@ -17,11 +17,11 @@ import dev.jarvis.ui.components.ConversationCard
             Text("Your conversations", style = MaterialTheme.typography.titleLarge)
             TextButton(onClick = { clear = true }, enabled = history.isNotEmpty()) { Text("Clear") }
         } }
-        item { Text("Up to 200 commands, encrypted on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (history.isEmpty()) item { Text("No commands yet.", modifier = Modifier.padding(top = 30.dp)) }
+        item { Text("Up to 200 conversations, encrypted on this device. Private notification readouts are not saved here.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (history.isEmpty()) item { Text("Your saved conversations will appear here.", modifier = Modifier.padding(top = 30.dp)) }
         items(history, key = { it.id }) { ConversationCard(it) }
     }
-    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear conversation history?") }, text = { Text("This deletes the saved commands and responses from this device.") },
+    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear conversation history?") }, text = { Text("This deletes the saved conversations from this device.") },
         confirmButton = { TextButton(onClick = { vm.clearHistory(); clear = false }) { Text("Clear history") } }, dismissButton = { TextButton(onClick = { clear = false }) { Text("Cancel") } })
 }
 

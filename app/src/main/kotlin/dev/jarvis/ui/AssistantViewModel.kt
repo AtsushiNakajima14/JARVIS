@@ -2,10 +2,13 @@ package dev.jarvis.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.app.KeyguardManager
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.core.net.toUri
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.jarvis.assistant.memory.MemoryRepository
@@ -19,6 +22,9 @@ import dev.jarvis.core.database.*
 import dev.jarvis.core.voice.AssistantService
 import dev.jarvis.device.applications.ApplicationRepository
 import dev.jarvis.device.scanner.DeviceScanner
+import dev.jarvis.device.knowledge.DeviceKnowledgeRepository
+import dev.jarvis.assistant.abilities.ReminderRepository
+import dev.jarvis.assistant.abilities.FileKnowledgeRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -32,7 +38,10 @@ class AssistantViewModel @Inject constructor(
     private val dao: JarvisDao, private val apps: ApplicationRepository,
     private val scanner: DeviceScanner, private val responder: SpeechResponder,
     private val localAI: LocalAIProvider, private val speech: AndroidSpeechEngine,
-    private val notifications: NotificationRepository
+    private val notifications: NotificationRepository,
+    private val knowledge: DeviceKnowledgeRepository,
+    private val remindersRepository: ReminderRepository,
+    private val filesRepository: FileKnowledgeRepository
 ) : ViewModel() {
     val status = session.state.asStateFlow()
     val config = store.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AssistantSettings())
@@ -41,20 +50,39 @@ class AssistantViewModel @Inject constructor(
     val voices = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val speechProvider = MutableStateFlow<SpeechProviderAvailability?>(null)
     val notificationAccess = MutableStateFlow(false)
+    private val unlocked = MutableStateFlow(!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            unlocked.value = intent.action != Intent.ACTION_SCREEN_OFF && !context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
+            if (!unlocked.value) knowledge.clearSnapshot()
+        }
+    }
     private val deviceTasks = Mutex()
+    private var fileSelectionRevision = filesRepository.currentRevision()
     private fun <T> Flow<List<T>>.observed() = catch { notice.value = "Local data could not be read. Clear app data if your device encryption key changed."; emit(emptyList()) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val history = dao.history().observed()
+    val history = combine(dao.history(), unlocked) { items, allowed -> if (allowed) items else emptyList() }.observed()
+    val conversation = combine(session.conversation, unlocked) { items, allowed -> if (allowed) items else emptyList() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val deviceKnowledge = knowledge.snapshot
+    val reminders = combine(remindersRepository.reminders, unlocked) { items, allowed -> if (allowed) items else emptyList() }.observed()
+    val knownFiles = combine(filesRepository.knownFiles, unlocked) { items, allowed -> if (allowed) items else emptyList() }.observed()
     val applications = apps.applications.observed()
-    val information = dao.deviceInfo().observed()
-    val memories = combine(memory.memories, store.settings, notificationAccess) { items, config, allowed ->
-        items.mapNotNull { item ->
-            if (item.kind != "notification_message") item
+    val information = combine(dao.deviceInfo(), unlocked) { items, allowed -> if (allowed) items else emptyList() }.observed()
+    val memories = combine(memory.memories, store.settings, notificationAccess, unlocked) { items, config, allowed, isUnlocked ->
+        if (!isUnlocked) emptyList() else items.mapNotNull { item ->
+            if (item.kind in setOf("companion_reminder", "companion_file", "timer", "file")) null
+            else if (item.kind != "notification_message") item
             else if (!config.notificationReading || !allowed) null
             else notifications.savedPreviewLabel(item)?.let { item.copy(content = SecretText(it)) }
         }
     }.flowOn(Dispatchers.IO).observed()
-    init { task("Scanning applications…") { if (apps.list().isEmpty()) apps.scan(); scanner.scanDevice(); "Device index ready" } }
+    init {
+        ContextCompat.registerReceiver(context, screenReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_USER_PRESENT)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        task("Getting to know your phone…") { filesRepository.files(); knowledge.refresh(); "Phone awareness refreshed" }
+    }
     private fun task(label: String, block: suspend () -> String) {
         viewModelScope.launch {
             // A scan started before a privacy clear must finish before the clear, not repopulate it afterward.
@@ -71,20 +99,38 @@ class AssistantViewModel @Inject constructor(
             }
         }
     }
-    fun refresh() = task("Scanning applications…") { val count = apps.scan(); scanner.scanDevice(); "$count launcher applications indexed" }
+    fun refresh() = task("Updating phone awareness…") { val count = apps.scan(); filesRepository.files(); knowledge.refresh(); "$count launcher applications indexed" }
     fun contacts() = task("Scanning contacts…") { "${scanner.scanContacts()} contact numbers indexed locally" }
     fun calendar() = task("Scanning calendar…") { "${scanner.scanCalendar()} events indexed for the next seven days" }
-    fun addFile(uri: Uri) = task("Indexing selected file…") { scanner.addFile(uri); "File metadata saved locally" }
-    fun refreshInfo() = task("Refreshing device information…") { scanner.scanDevice(); "Device information refreshed" }
+    fun beginFileSelection() { fileSelectionRevision = filesRepository.currentRevision() }
+    fun addFile(uri: Uri) = task("Remembering selected file…") {
+        if (filesRepository.add(uri, fileSelectionRevision)) "File metadata saved locally"
+        else "This file could not be added. Choose a document available on this phone."
+    }
+    fun refreshInfo() = task("Refreshing device information…") { knowledge.refresh(); "Device information refreshed" }
+    fun completeReminder(id: String) = task("Updating reminder…") { if (remindersRepository.completeId(id)) "Reminder completed" else "Reminder is no longer available" }
+    fun forgetReminder(id: String) = task("Deleting reminder…") { stopAndClearConversation(); remindersRepository.forget(id); "Reminder deleted" }
+    fun forgetFile(id: String) = task("Forgetting selected file…") { stopAndClearConversation(); filesRepository.forget(id); "File access and saved metadata removed" }
     fun loadVoices() { viewModelScope.launch { runCatching { voices.value = responder.voices() } } }
     fun refreshSpeechProvider() {
         viewModelScope.launch { speechProvider.value = withContext(Dispatchers.IO) { speech.availability() } }
     }
     fun refreshNotificationAccess() {
         viewModelScope.launch {
+            unlocked.value = !context.getSystemService(KeyguardManager::class.java).isKeyguardLocked
             val allowed = androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
             notificationAccess.value = allowed
             if (!allowed) withContext(Dispatchers.IO) { notifications.clear() }
+            try {
+                deviceTasks.withLock {
+                    withContext(Dispatchers.IO) {
+                        filesRepository.files()
+                        // Refresh optional permissions after returning from Android settings.
+                        knowledge.refresh()
+                    }
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { session.log("Phone awareness refresh unavailable") }
         }
     }
     fun boolean(key: String, value: Boolean) { viewModelScope.launch { store.boolean(key, value) } }
@@ -103,7 +149,6 @@ class AssistantViewModel @Inject constructor(
     fun text(key: String, value: String) { viewModelScope.launch { store.text(key, value) } }
     fun number(key: String, value: Float) { viewModelScope.launch { store.number(key, value) } }
     fun forget(item: UserPreferenceEntity) = task("Deleting…") {
-        if (item.kind == "file") runCatching { context.contentResolver.releasePersistableUriPermission(item.content.text.substringAfterLast('\n').toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         if (item.kind in setOf("memory", "notification_message")) stopAndClearConversation()
         if (item.kind == "notification_message") notifications.forget(item.id) else memory.forget(item.id)
         "Deleted"
@@ -115,13 +160,14 @@ class AssistantViewModel @Inject constructor(
         localAI.cancel()
         localAI.awaitIdle()
         localAI.clearConversation()
+        session.clearConversation()
         session.state.value = AssistantState(AssistantPhase.PAUSED, "Paused · tap the mic to resume")
     }
     fun clearMemory() = task("Clearing saved memory…") {
         stopAndClearConversation(); memory.clear(); "Saved memory cleared. Listening is paused."
     }
     fun clearHistory() = task("Clearing history…") {
-        stopAndClearConversation(); dao.clearHistory(); "Command history cleared. Listening is paused."
+        stopAndClearConversation(); dao.clearHistory(); "Conversation history cleared. Listening is paused."
     }
     fun resetIndex() = task("Rebuilding application index…") {
         val count = apps.scan(); "$count applications indexed. New apps refresh automatically."
@@ -134,6 +180,9 @@ class AssistantViewModel @Inject constructor(
         store.boolean("notification_announcements", false)
         store.boolean("notifications", false)
         notifications.clear()
+        remindersRepository.clear()
+        filesRepository.clear()
+        knowledge.clearSnapshot()
         context.getSystemService(android.app.NotificationManager::class.java).cancelAll()
         val alarm = context.getSystemService(android.app.AlarmManager::class.java)
         dao.preferenceList("timer").forEach { timer ->
@@ -142,6 +191,10 @@ class AssistantViewModel @Inject constructor(
         }
         context.contentResolver.persistedUriPermissions.forEach { grant -> runCatching { context.contentResolver.releasePersistableUriPermission(grant.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         dao.clearAll(); store.reset(); session.logs.value = emptyList(); "All local data cleared. Listening is paused."
+    }
+    override fun onCleared() {
+        context.unregisterReceiver(screenReceiver)
+        super.onCleared()
     }
 }
 

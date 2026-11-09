@@ -11,6 +11,10 @@ object CommandLexicon {
 
     fun phrases(appLabels: List<String>): List<String> {
         val plain = linkedSetOf(
+            "what is the time", "what time is it", "what time is it now", "what is the time now",
+            "tell me the time", "tell me the current time", "what is the current time", "current time",
+            "what is the date", "what is the date today", "what day is it", "what day is today",
+            "what is today's date", "tell me the date", "current date",
             "battery percentage", "battery percent", "battery status", "battery level", "check battery",
             "what is my battery percentage", "what is my battery level", "how much battery do i have",
             "check battery percentage", "please check battery", "tell me my battery percentage",
@@ -80,8 +84,10 @@ object SpokenApplicationNames {
         "ticktock", "ticktok", "tiktok" -> "tiktok"
         "whatsup", "whatsap", "whatsapp" -> "whatsapp"
         "utube", "youtube" -> "youtube"
+        "ytmusic", "youtubemusic", "utubemusic" -> "youtubemusic"
         "chatgeepeetee", "chatgpt" -> "chatgpt"
         "geemail", "gmail" -> "gmail"
+        "spotifi", "spotofi", "spotefi", "spotify" -> "spotify"
         else -> joined
     }
     fun aliases(label: String): List<String> {
@@ -92,11 +98,13 @@ object SpokenApplicationNames {
             "discord" -> names += "dis cord"
             "facebook" -> names += "face book"
             "youtube" -> names += listOf("you tube", "u tube")
+            "youtubemusic" -> names += listOf("youtube music", "you tube music", "u tube music", "y t music")
             "tiktok" -> names += listOf("tik tok", "tick tock")
             "whatsapp" -> names += listOf("whats app", "what's app")
             "instagram" -> names += "insta gram"
             "chatgpt" -> names += listOf("chat g p t", "chat gee pee tee")
             "gmail" -> names += listOf("g mail", "gee mail")
+            "spotify" -> names += listOf("spot if i", "spot of i", "spo te fi", "spot i fi")
         }
         val camelWords = label.replace(Regex("([a-z])([A-Z])"), "$1 $2")
         names += normalize(camelWords).replace(Regex("[^a-z0-9 ]"), " ").replace(Regex("\\s+"), " ").trim()

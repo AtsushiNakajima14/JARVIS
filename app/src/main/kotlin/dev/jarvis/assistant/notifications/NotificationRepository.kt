@@ -129,6 +129,29 @@ class NotificationRepository @Inject constructor(@param:ApplicationContext priva
         }
     }
 
+    /** A device briefing needs a count, not the contents of private message previews. */
+    suspend fun summary(): String = withContext(Dispatchers.IO) {
+        val expected = currentRevision()
+        if (!hasAccess() || !settings.settings.first().notificationReading)
+            return@withContext "Notification awareness is off. You can enable it in Settings."
+        if (locked()) return@withContext "Unlock your phone to check notifications."
+        refresh()
+        val result = mutex.withLock {
+            if (!connected) "Android has not connected notification access yet."
+            else {
+                val count = ledger.snapshot(System.currentTimeMillis()).size
+                if (count == 0) "No active notifications are visible to me."
+                else "I can see $count active ${if (count == 1) "notification" else "notifications"}. Ask me to read them when you're ready."
+            }
+        }
+        when {
+            locked() -> "Unlock your phone to check notifications."
+            expected != currentRevision() -> "Notification data changed. Ask me to check again."
+            !hasAccess() || !settings.settings.first().notificationReading -> "Notification awareness is off."
+            else -> result
+        }
+    }
+
     /** Invalidate in-flight captures before waiting for any encrypted database operation. */
     suspend fun clear() {
         revision.incrementAndGet()

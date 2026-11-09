@@ -1,9 +1,9 @@
 package dev.jarvis.ui.home
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -13,68 +13,106 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.jarvis.ui.AssistantViewModel
 import dev.jarvis.assistant.response.AssistantPersona
+import dev.jarvis.ui.AssistantViewModel
 import dev.jarvis.ui.components.*
 
-@Composable fun HomeScreen(vm: AssistantViewModel, listen: () -> Unit, wake: () -> Unit, command: (String) -> Unit, stop: () -> Unit, history: () -> Unit) {
+@Composable fun HomeScreen(vm: AssistantViewModel, listen: () -> Unit, wake: () -> Unit,
+    command: (String) -> Unit, stop: () -> Unit, history: () -> Unit, navigate: (String) -> Unit = {}) {
     val state by vm.status.collectAsStateWithLifecycle()
     val recent by vm.history.collectAsStateWithLifecycle()
-    val config by vm.config.collectAsStateWithLifecycle()
+    val conversation by vm.conversation.collectAsStateWithLifecycle()
+    val phone by vm.deviceKnowledge.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Spacer(Modifier.height(6.dp))
-        Text("Hi, ${AssistantPersona.FRIENDLY_NAME}.\nI'm here to help.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Outlined.Lock, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("Your voice. Your assistant.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                AssistantStatus(state)
-                if (!config.networkSpeech) TextButton(onClick = { vm.boolean("network", true) }) { Text("Use Google speech") }
-                if (state.transcript.isNotBlank()) {
-                    Text("I heard", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("“${state.transcript}”", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
-                    if (state.recognitionSource.isNotBlank()) Text(state.recognitionSource, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { input = state.transcript }) { Text("Edit command") }
-                }
-                if (state.lastResponse.isNotBlank() && state.lastResponse != state.detail) Text(state.lastResponse, style = MaterialTheme.typography.bodyMedium)
-                FilledIconButton(onClick = listen, shape = CircleShape, modifier = Modifier.size(88.dp).align(Alignment.CenterHorizontally)) {
-                    Icon(Icons.Outlined.Mic, "Listen for a command", Modifier.size(34.dp))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    if (state.running) TextButton(onClick = stop) { Icon(Icons.Outlined.Pause, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Pause listening") }
-                    else TextButton(onClick = wake) { Text("Enable “Jarvis” wake word") }
-                }
-                state.confirmation?.let { prompt ->
-                    HorizontalDivider()
-                    Text(prompt)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { command("confirm") }) { Text("Confirm") }
-                        OutlinedButton(onClick = { command("cancel") }) { Text("Cancel") }
+    Column(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item {
+                Text("Hi, ${AssistantPersona.FRIENDLY_NAME}.", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+                Text("What's on your mind?", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Outlined.Lock, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("Your private phone companion", style = MaterialTheme.typography.labelMedium)
+                        }
+                        AssistantStatus(state)
+                        if (state.recognitionSource.isNotBlank()) Text(state.recognitionSource,
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.transcript.isNotBlank()) {
+                            Text(state.transcript, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                            TextButton(onClick = { input = state.transcript }) { Text("Edit what I heard") }
+                        }
+                        if (state.lastResponse.isNotBlank()) Text(state.lastResponse, style = MaterialTheme.typography.bodyLarge)
+                        state.confirmation?.let { prompt ->
+                            HorizontalDivider()
+                            Text(prompt)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { command("confirm") }) { Text("Confirm") }
+                                OutlinedButton(onClick = { command("cancel") }) { Text("Cancel") }
+                            }
+                        }
                     }
                 }
             }
+            item {
+                Card(onClick = { navigate("device") }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Your phone", style = MaterialTheme.typography.titleSmall)
+                        Text(phone?.summary() ?: "Ask me how your phone is doing.", style = MaterialTheme.typography.bodyMedium)
+                        phone?.let { Text("${it.applicationCount} apps known · Updated ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it.measuredAt))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { navigate("memory") }) { Text("Memory") }
+                    TextButton(onClick = { navigate("tasks") }) { Text("Reminders") }
+                    TextButton(onClick = { navigate("apps") }) { Text("Apps") }
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Our conversation", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = history) { Text("History") }
+                }
+            }
+            if (conversation.isNotEmpty()) {
+                items(conversation.takeLast(12)) { turn -> ConversationTurn(turn.user, turn.assistant, turn.inputSource) }
+            } else if (recent.isNotEmpty()) {
+                items(recent.take(3).reversed(), key = { it.id }) { ConversationCard(it) }
+            } else item {
+                Text("Tell me what you need in your own words. I can help you contact someone, make a plan, remember something, or check your phone.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        OutlinedTextField(value = input, onValueChange = { input = it.take(2000) }, label = { Text("Or type a command") }, modifier = Modifier.fillMaxWidth(), maxLines = 3,
-            trailingIcon = { IconButton(onClick = { if (input.isNotBlank()) { command(input); input = "" } }, enabled = input.isNotBlank()) { Icon(Icons.Outlined.ArrowUpward, "Run command") } })
-        Text("TRY ASKING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SuggestionChip(onClick = { command("battery percentage") }, label = { Text("Battery status") })
-            SuggestionChip(onClick = { command("give me a briefing") }, label = { Text("Catch me up") })
+        Surface(tonalElevation = 2.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = input, onValueChange = { input = it.take(2000) }, label = { Text("Talk to JARVIS") }, modifier = Modifier.weight(1f), maxLines = 3,
+                        trailingIcon = { IconButton(onClick = { if (input.isNotBlank()) { command(input); input = "" } }, enabled = input.isNotBlank()) { Icon(Icons.Outlined.ArrowUpward, "Send message") } })
+                    FilledIconButton(onClick = listen, shape = CircleShape, modifier = Modifier.size(56.dp)) { Icon(Icons.Outlined.Mic, "Talk to JARVIS") }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    if (state.running) TextButton(onClick = stop) { Icon(Icons.Outlined.Pause, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Pause listening") }
+                    else TextButton(onClick = wake) { Text("Listen for “Jarvis”") }
+                }
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SuggestionChip(onClick = { command("read my notifications") }, label = { Text("Notifications") })
-            SuggestionChip(onClick = { command("who messaged me") }, label = { Text("Recent chats") })
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Recent conversations", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = history) { Text("View all") }
-        }
-        if (recent.isEmpty()) Text("Say “Jarvis”, wait for the listening tone, then speak naturally. You can also tap the microphone or say “Jarvis, battery percentage” together.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        else recent.take(3).forEach { ConversationCard(it) }
-        Spacer(Modifier.height(16.dp))
     }
 }
 
+@Composable private fun ConversationTurn(user: String, assistant: String, inputSource: String) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(Modifier.align(Alignment.End).fillMaxWidth(0.92f), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+            Column(Modifier.padding(14.dp)) {
+                Text(when { inputSource == "Typed" -> "You · Typed"; inputSource.isNotBlank() -> "You · Voice"; else -> "You" }, style = MaterialTheme.typography.labelSmall)
+                Text(user, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Surface(Modifier.fillMaxWidth(0.95f), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column(Modifier.padding(14.dp)) {
+                Text("JARVIS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(assistant, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}

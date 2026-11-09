@@ -4,6 +4,6 @@ package dev.jarvis.assistant.wakeword
 data class WakeActivation(val alternatives: List<String> = emptyList(), val source: String = "Offline English · device commands")
 interface WakeWordEngine {
     suspend fun awaitWakeWord(appLabels: List<String>, onDetected: () -> Unit, onPartial: (String) -> Unit,
-        onAudioActivity: () -> Unit = {}): WakeActivation
+        onAudioActivity: () -> Unit = {}, freeForm: Boolean = false): WakeActivation
 }
 

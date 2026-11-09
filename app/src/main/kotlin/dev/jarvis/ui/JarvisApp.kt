@@ -27,7 +27,7 @@ import dev.jarvis.ui.theme.JarvisTheme
         val nav = rememberNavController()
         val back by nav.currentBackStackEntryAsState()
         val route = back?.destination?.route ?: "home"
-        val destinations = listOf(Triple("home", "Assistant", Icons.Outlined.Mic), Triple("history", "History", Icons.Outlined.History), Triple("settings", "Settings", Icons.Outlined.Tune))
+        val destinations = listOf(Triple("home", "Companion", Icons.Outlined.Mic), Triple("memory", "Memory", Icons.Outlined.Psychology), Triple("settings", "Settings", Icons.Outlined.Tune))
         val notice by vm.notice.collectAsStateWithLifecycle()
         val busy by vm.busy.collectAsStateWithLifecycle()
         Scaffold(containerColor = MaterialTheme.colorScheme.background,
@@ -47,13 +47,14 @@ import dev.jarvis.ui.theme.JarvisTheme
                 if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                 NavHost(nav, "home", modifier = Modifier.weight(1f)) {
-                    composable("home") { HomeScreen(vm, onListen, onWake, onCommand, onStop) { nav.navigate("history") } }
+                    composable("home") { HomeScreen(vm, onListen, onWake, onCommand, onStop, { nav.navigate("history") }, { nav.navigate(it) }) }
                     composable("history") { HistoryScreen(vm) }
                     composable("settings") { SettingsScreen(vm, onStop) { nav.navigate(it) } }
                     composable("permissions") { PermissionsScreen(vm) }
                     composable("device") { DeviceScreen(vm) }
                     composable("apps") { AppsScreen(vm) }
                     composable("memory") { MemoryScreen(vm) }
+                    composable("tasks") { ReminderScreen(vm) }
                     composable("logs") { LogsScreen(vm) }
                 }
             }

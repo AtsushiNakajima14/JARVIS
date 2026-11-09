@@ -12,7 +12,7 @@ import javax.inject.Singleton
 @Singleton
 class VoskWakeWordEngine @Inject constructor(private val models: VoskModelStore, private val audio: VoskAudioSource) : WakeWordEngine {
     override suspend fun awaitWakeWord(appLabels: List<String>, onDetected: () -> Unit,
-        onPartial: (String) -> Unit, onAudioActivity: () -> Unit): WakeActivation = withContext(Dispatchers.IO) {
+        onPartial: (String) -> Unit, onAudioActivity: () -> Unit, freeForm: Boolean): WakeActivation = withContext(Dispatchers.IO) {
         models.withModel { model ->
             val wake = Recognizer(model, 16000f, "[\"jarvis\", \"[unk]\"]")
             val preRoll = TransientPcmBuffer(8)
@@ -22,7 +22,7 @@ class VoskWakeWordEngine @Inject constructor(private val models: VoskModelStore,
             val phrases = CommandLexicon.phrases(appLabels)
             fun activation(result: SpeechResult): WakeActivation {
                 if (result.wakeOnly) return WakeActivation()
-                val selected = SpeechSelection().choose(result.alternatives)
+                val selected = if (freeForm) result.text else SpeechSelection().choose(result.alternatives)
                 return if (stripAssistantPrefix(selected).isBlank()) WakeActivation()
                 else WakeActivation(result.alternatives, result.source)
             }
@@ -40,7 +40,7 @@ class VoskWakeWordEngine @Inject constructor(private val models: VoskModelStore,
                         if (stableWake.observe(text, complete)) {
                             activatedAt = SystemClock.elapsedRealtime()
                             onDetected()
-                            val next = OfflineCommandDecoder(model, phrases, appLabels, fromWake = true)
+                            val next = OfflineCommandDecoder(model, phrases, appLabels, constrained = !freeForm, fromWake = true)
                             command = next
                             val replayed = WakeReplay.replay(preRoll, next::accept)
                             preRoll.clear()

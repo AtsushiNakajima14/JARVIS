@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.withResumed
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jarvis.core.common.*
 import dev.jarvis.core.permissions.PermissionStatus
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
         setContent { JarvisApp(onListen = { requestAssistant(AssistantService.ACTION_LISTEN) },
             onWake = { requestAssistant("dev.jarvis.WAKE") }, onCommand = { requestAssistant(AssistantService.ACTION_TEXT, it) }, onStop = ::stopAssistant) }
+        handleAssistIntent(intent)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 for (intent in session.launches) {
@@ -42,8 +44,20 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAssistIntent(intent)
+    }
+    private fun handleAssistIntent(assistIntent: Intent?) {
+        if (assistIntent?.action !in setOf(Intent.ACTION_ASSIST, "dev.jarvis.ASSIST_LISTEN")) return
+        assistIntent?.action = null
+        lifecycleScope.launch {
+            lifecycle.withResumed { requestAssistant(AssistantService.ACTION_LISTEN) }
+        }
+    }
     private fun requestAssistant(action: String, text: String? = null) {
-        if (!PermissionStatus.microphone(this)) { requestedAction = action to text; microphone.launch(Manifest.permission.RECORD_AUDIO) }
+        if (action != AssistantService.ACTION_TEXT && !PermissionStatus.microphone(this)) { requestedAction = action to text; microphone.launch(Manifest.permission.RECORD_AUDIO) }
         else startAssistant(action, text)
     }
     private fun startAssistant(action: String, text: String?) {

@@ -21,5 +21,11 @@ object PrivateCommandPolicy {
     fun transcript(text: String): String = if (isCredentialRequest(text)) "[Credential omitted]" else text
     fun notificationQuery(type: IntentType): Boolean = type in setOf(
         IntentType.NOTIFICATIONS, IntentType.RECENT_CONVERSATIONS, IntentType.DAILY_BRIEFING)
+    fun privateAbility(type: IntentType): Boolean = notificationQuery(type) || type in setOf(
+        IntentType.CALL, IntentType.MESSAGE, IntentType.REMEMBER, IntentType.RECALL,
+        IntentType.MEMORY_LIST, IntentType.MEMORY_FORGET,
+        IntentType.FILE_SEARCH, IntentType.RECENT_FILES,
+        IntentType.REMINDER_CREATE, IntentType.REMINDER_LIST, IntentType.REMINDER_COMPLETE,
+        IntentType.DEVICE_HEALTH, IntentType.PREPARE_PHONE, IntentType.MOST_USED, IntentType.RARELY_USED)
     const val CREDENTIAL_REPLY = "I don't save or enter PINs or passwords. Say unlock my phone to open Android authentication."
 }
